@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="40 40 432 432" width="512" height="512">
+<defs>
+  <!-- sky background sampled from the theme: deep blue top-left to misty white bottom-right -->
+  <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#3f6595"/>
+    <stop offset="0.45" stop-color="#6f95c0"/>
+    <stop offset="0.78" stop-color="#a6c3dc"/>
+    <stop offset="1" stop-color="#e2eaef"/>
+  </linearGradient>
+  <!-- soft cloud patches like the blurry screenshot -->
+  <radialGradient id="cloud" cx="50%" cy="50%" r="50%">
+    <stop offset="0" stop-color="#ffffff" stop-opacity="0.6"/>
+    <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+  </radialGradient>
+  <radialGradient id="shade" cx="50%" cy="50%" r="50%">
+    <stop offset="0" stop-color="#284a75" stop-opacity="0.45"/>
+    <stop offset="1" stop-color="#284a75" stop-opacity="0"/>
+  </radialGradient>
+  <!-- potion: a deeper sky blue -->
+  <linearGradient id="liq" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#5b8fd0"/>
+    <stop offset="1" stop-color="#2d5a92"/>
+  </linearGradient>
+  <clipPath id="badge"><rect x="0" y="0" width="512" height="512" rx="116"/></clipPath>
+  <clipPath id="flask"><path d="M220 231.2 L118 407.9 Q96 446 140 446 L372 446 Q416 446 394 407.9 L292 231.2 Z"/></clipPath>
+  
+  <clipPath id="full"><path d="M220 196 L292 196 L292 231.2 L394 407.9 Q416 446 372 446 L140 446 Q96 446 118 407.9 L220 231.2 Z"/></clipPath>
+</defs>
+<g transform="translate(256 286) scale(0.84) translate(-256 -297)">
+  <g fill="#d6e4f1"><rect x="220" y="196" width="72" height="52" rx="10"/><path d="M220 231.2 L118 407.9 Q96 446 140 446 L372 446 Q416 446 394 407.9 L292 231.2 Z"/></g>
+  <rect x="80" y="190" width="360" height="270" fill="url(#liq)" clip-path="url(#full)"/>
+  <rect x="204" y="184" width="104" height="24" rx="12" fill="#d6e4f1"/>
+  <g fill="#8db8ea"><circle cx="226" cy="186" r="22"/><circle cx="250" cy="174" r="26"/><circle cx="276" cy="180" r="24"/><circle cx="292" cy="192" r="18"/><circle cx="212" cy="198" r="16"/><circle cx="262" cy="196" r="20"/><path d="M206 196 Q198 220 204 236 Q210 246 214 232 Q216 214 214 196 Z"/><path d="M300 196 Q312 214 306 240 Q300 252 296 238 Q294 216 296 196 Z"/></g>
+  <g fill="#8db8ea"><circle cx="300" cy="132" r="12" opacity="0.95"/><circle cx="226" cy="122" r="9" opacity="0.9"/><circle cx="318" cy="96" r="7" opacity="0.8"/><circle cx="240" cy="84" r="6" opacity="0.7"/><circle cx="196" cy="150" r="7" opacity="0.85"/></g>
+  <rect x="268" y="40" width="68" height="44" rx="13" fill="#d6e4f1" transform="rotate(24 302 62)"/>
+  <g fill="#ffffff"><rect x="212" y="330" width="22" height="64" rx="11"/><rect x="278" y="330" width="22" height="64" rx="11"/></g>
+</g>
+</svg>

@@ -26,14 +26,14 @@
   <div class="grain" aria-hidden="true"></div>
 
   <header class="nav">
-    <a class="brand" href="#top" aria-label="Experiment AI home">
+    <a class="brand" href="/" aria-label="Experiment AI home">
       <img src="assets/potion-orb-pfp-sky-bottle.png" alt="" width="38" height="38" />
       <span>Experiment <em class="serif">AI</em></span>
     </a>
-    <nav class="nav-links" aria-label="Sections">
-      <a href="#models">Models</a>
-      <a href="#compare">Compare</a>
-      <a href="#features">Features</a>
+    <nav class="nav-links" aria-label="Pages">
+      <a href="/aboutus">About us</a>
+      <a href="/contact">Contact</a>
+      <a href="/pricing">Pricing</a>
     </nav>
     <button class="btn btn-dark btn-sm nav-cta" data-auth>Join waitlist</button>
   </header>
@@ -54,7 +54,7 @@
           <button class="btn btn-dark btn-lg magnetic" data-auth>Join the waitlist <span class="arrow">→</span></button>
         </div>
 
-        <p class="byline">An <strong>Experiment Labs</strong> creation</p>
+        <p class="byline"><img src="/assets/potion-orb-icon-pfp.png" alt="" width="22" height="22" />An <strong>Experiment Labs</strong> creation</p>
       </div>
     </section>
 
@@ -224,6 +224,17 @@
           <button class="btn btn-dark btn-lg full" type="submit">Join the waitlist</button>
         </form>
         <p class="fine">Already joined? Enter the same email and password to check your spot.</p>
+      </div>
+
+      <div class="step step-verify">
+        <h3>Check your <em class="serif gold">email</em></h3>
+        <p class="modal-sub">We sent a 6-digit code to <strong class="verify-email"></strong>. Enter it to confirm your email and save your spot.</p>
+        <form class="verify-form" novalidate>
+          <input class="code-input" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" aria-label="6-digit verification code" />
+          <button class="btn btn-dark btn-lg full" type="submit">Verify email</button>
+        </form>
+        <button type="button" class="link-btn" data-resend>Didn’t get it? Send a new code</button>
+        <button type="button" class="link-btn" data-signout>Use a different email</button>
       </div>
 
       <div class="step step-done">

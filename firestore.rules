@@ -1,13 +1,15 @@
 rules_version = '2';
 
 // Paste into Firebase console → Firestore Database → Rules → Publish.
-// Each signed-in person can create and read only their own waitlist entry. Nobody can list the waitlist
-// from the browser; read it in the Firebase console (or with the Admin SDK).
+// Each signed-in person with a verified email can create and read only their own waitlist entry. Nobody can
+// list the waitlist from the browser; read it in the Firebase console (or with the Admin SDK).
+// emailCodes/{uid} (verification codes) has no rule, so browsers can't touch it; only the server functions can.
 service cloud.firestore {
   match /databases/{database}/documents {
     match /waitlist/{uid} {
       allow get: if request.auth != null && request.auth.uid == uid;
       allow create: if request.auth != null && request.auth.uid == uid
+        && request.auth.token.email_verified == true
         && request.resource.data.keys().hasOnly(['name', 'email', 'provider', 'joinedAt'])
         && request.resource.data.name is string && request.resource.data.name.size() <= 100
         && request.resource.data.email == request.auth.token.get('email', null)

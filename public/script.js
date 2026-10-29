@@ -45,7 +45,7 @@ import {
   /* ── Hero logo tilts toward the cursor ── */
   const tile = $('.logo-tile');
   if (!reduced && matchMedia('(pointer: fine)').matches) {
-    addEventListener('pointermove', (e) => {
+    if (tile) addEventListener('pointermove', (e) => {
       const x = e.clientX / innerWidth - 0.5;
       const y = e.clientY / innerHeight - 0.5;
       tile.style.setProperty('--ry', (x * 22).toFixed(1) + 'deg');
@@ -66,15 +66,18 @@ import {
     });
   }
 
-  /* ── GSAP: hero intro, hero parallax out, section reveals, orbit entrance ── */
+  /* ── GSAP: page intro, hero parallax out, section reveals, orbit entrance ── */
   if (!reduced) {
-    gsap.from(['.logo-wrap', '.wordmark', '.tagline', '.cta', '.byline'], {
-      y: 40, autoAlpha: 0, duration: 1.2, ease: 'power3.out', stagger: 0.12, delay: 0.15,
-    });
-    gsap.to('.hero-inner', {
-      y: -120, scale: 0.94, autoAlpha: 0, ease: 'none',
-      scrollTrigger: { trigger: '.hero', start: 'top top', end: 'bottom top', scrub: true },
-    });
+    const intro = $$('.hero-inner > *, .page-hero > *');
+    if (intro.length) {
+      gsap.from(intro, { y: 40, autoAlpha: 0, duration: 1.2, ease: 'power3.out', stagger: 0.12, delay: 0.15 });
+    }
+    if ($('.hero')) {
+      gsap.to('.hero-inner', {
+        y: -120, scale: 0.94, autoAlpha: 0, ease: 'none',
+        scrollTrigger: { trigger: '.hero', start: 'top top', end: 'bottom top', scrub: true },
+      });
+    }
     $$('.reveal').forEach((el) => {
       gsap.from(el, {
         y: 70, autoAlpha: 0, duration: 1.1, ease: 'power3.out',
@@ -82,10 +85,12 @@ import {
         scrollTrigger: { trigger: el, start: 'top 88%' },
       });
     });
-    gsap.from('.orbit', {
-      scale: 0.55, rotate: -40, autoAlpha: 0, ease: 'none',
-      scrollTrigger: { trigger: '.orbit', start: 'top 95%', end: 'center 60%', scrub: 1 },
-    });
+    if ($('.orbit')) {
+      gsap.from('.orbit', {
+        scale: 0.55, rotate: -40, autoAlpha: 0, ease: 'none',
+        scrollTrigger: { trigger: '.orbit', start: 'top 95%', end: 'center 60%', scrub: 1 },
+      });
+    }
   }
 
   /* ── Feature demos: each loops only while its card is on screen ── */
@@ -170,12 +175,16 @@ import {
     ['', '}'],
   ];
 
-  /* ── Waitlist: create an account with Google or email + password (Firebase Auth), saved to waitlist/{uid} ── */
+  /* ── Waitlist: Google, or email + password (Firebase Auth). Email sign-ups confirm a 6-digit code that
+        api/send-code emails from noreply@experimentai.dev (api/verify-code checks it). Spot saved to waitlist/{uid}. ── */
   const modal = $('#auth');
   const msg = $('.form-msg', modal);
   const joinButtons = $$('[data-auth]');
   joinButtons.forEach((b) => { b.dataset.label = b.innerHTML; });
   let lastFocus = null;
+
+  // Google already verifies its emails; email + password accounts verify with our code.
+  const isVerified = (user) => user.emailVerified || user.providerData.some((p) => p.providerId === 'google.com');
 
   const say = (text, isErr = false) => {
     msg.textContent = text;
@@ -186,11 +195,19 @@ import {
   const open = () => {
     lastFocus = document.activeElement;
     say('');
-    if (auth.currentUser) fillDone(auth.currentUser);
-    showStep(auth.currentUser ? 'done' : 'join');
+    const user = auth.currentUser;
+    if (user && isVerified(user)) {
+      fillDone(user);
+      showStep('done');
+    } else if (user) {
+      $('.verify-email', modal).textContent = user.email;
+      showStep('verify');
+    } else {
+      showStep('join');
+    }
     modal.hidden = false;
     lenis?.stop();
-    setTimeout(() => $(`.step-${modal.dataset.step} button`, modal)?.focus(), 50);
+    setTimeout(() => $(`.step-${modal.dataset.step} input, .step-${modal.dataset.step} button`, modal)?.focus(), 50);
   };
   const close = () => {
     modal.hidden = true;
@@ -240,12 +257,42 @@ import {
     showStep('done');
   }
 
+  /* Verification-code API (Vercel functions in api/). */
+  async function api(path, user, body = {}) {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await user.getIdToken()}` },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Something went wrong. Please try again.');
+    return data;
+  }
+
+  async function sendCode(user) {
+    $('.verify-email', modal).textContent = user.email;
+    showStep('verify');
+    say('Sending your code…');
+    const { verified } = await api('/api/send-code', user);
+    if (verified) return confirmed(user);
+    say('Code sent. Check your inbox (and spam, just in case).');
+    setTimeout(() => $('.code-input', modal).focus(), 50);
+  }
+
+  async function confirmed(user) {
+    await user.reload();
+    await user.getIdToken(true); // a fresh token carries email_verified, which the Firestore rules check
+    await finish({ user: auth.currentUser, providerId: 'password' });
+  }
+
   const google = new GoogleAuthProvider();
   const form = $('.email-form', modal);
+  const verifyForm = $('.verify-form', modal);
+  const codeInput = $('.code-input', modal);
   let joining = false; // true while a sign-in is in flight, so the auth listener below doesn't save first
   const lock = (locked) => {
     joining = locked;
-    $$('button', $('.step-join', modal)).forEach((b) => { b.disabled = locked; });
+    $$('.step button', modal).forEach((b) => { b.disabled = locked; });
   };
 
   $('[data-provider="google"]', modal).addEventListener('click', async () => {
@@ -282,8 +329,46 @@ import {
         if (err.code !== 'auth/email-already-in-use') throw err;
         cred = await signInWithEmailAndPassword(auth, email, password);
       }
-      await finish({ user: cred.user, providerId: 'password' });
       form.reset();
+      if (isVerified(cred.user)) await finish({ user: cred.user, providerId: 'password' });
+      else await sendCode(cred.user);
+    } catch (err) {
+      fail(err);
+    } finally {
+      lock(false);
+    }
+  });
+
+  codeInput.addEventListener('input', () => {
+    codeInput.value = codeInput.value.replace(/\D/g, '').slice(0, 6);
+    if (codeInput.value.length === 6) verifyForm.requestSubmit();
+  });
+
+  verifyForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const user = auth.currentUser;
+    if (!user) return showStep('join');
+    const code = codeInput.value.replace(/\D/g, '');
+    if (code.length !== 6) return say('Enter the 6-digit code from the email.', true);
+    lock(true);
+    say('Checking your code…');
+    try {
+      await api('/api/verify-code', user, { code });
+      verifyForm.reset();
+      await confirmed(user);
+    } catch (err) {
+      fail(err);
+    } finally {
+      lock(false);
+    }
+  });
+
+  $('[data-resend]', modal).addEventListener('click', async () => {
+    const user = auth.currentUser;
+    if (!user) return showStep('join');
+    lock(true);
+    try {
+      await sendCode(user);
     } catch (err) {
       fail(err);
     } finally {
@@ -293,18 +378,21 @@ import {
 
   function fail(err) {
     console.error(err);
-    say(err.code?.startsWith('auth/') ? authMessage(err) : 'Signed in, but we couldn’t save your spot. Please try again.', true);
+    if (err.code?.startsWith('auth/')) return say(authMessage(err), true);
+    if (err.code) return say('We couldn’t save your spot. Please try again.', true); // Firestore
+    say(err.message || 'Something went wrong. Please try again.', true); // our API's own message
   }
 
   joinButtons.forEach((b) => b.addEventListener('click', open));
   $$('[data-close]', modal).forEach((b) => b.addEventListener('click', close));
   addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden) close(); });
 
-  $('[data-signout]', modal).addEventListener('click', async () => {
+  $$('[data-signout]', modal).forEach((b) => b.addEventListener('click', async () => {
     await signOut(auth);
     markJoined(false);
+    say('');
     showStep('join');
-  });
+  }));
 
   // Coming back from the redirect fallback.
   getRedirectResult(auth).then((cred) => {
@@ -318,8 +406,9 @@ import {
 
   // Returning visitors: show they're already in line (and save the spot if an earlier save failed).
   onAuthStateChanged(auth, (user) => {
-    markJoined(!!user);
-    if (user && !joining) saveSpot(user, user.providerData[0]?.providerId || 'password').catch(() => {});
+    const ok = !!user && isVerified(user);
+    markJoined(ok);
+    if (ok && !joining) saveSpot(user, user.providerData[0]?.providerId || 'password').catch(() => {});
   });
 
   const params = new URLSearchParams(location.search);
@@ -328,9 +417,52 @@ import {
     open();
   }
 
+  /* ── Pricing: Max 5× / 10× switch ── */
+  const maxCard = $('[data-max]');
+  if (maxCard) {
+    const toggle = $('.max-toggle', maxCard);
+    $$('button', toggle).forEach((b) => b.addEventListener('click', () => {
+      const tier = b.dataset.tier;
+      toggle.dataset.tier = tier;
+      $$('button', toggle).forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+      $$(`[data-${tier}]`, maxCard).forEach((el) => {
+        if (el.tagName === 'IMG') el.src = el.dataset[tier];
+        else el.textContent = el.dataset[tier];
+      });
+    }));
+  }
+
+  /* ── Contact: copy the email address ── */
+  $$('[data-copy]').forEach((b) => b.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(b.dataset.copy);
+      b.textContent = 'Copied ✓';
+    } catch {
+      b.textContent = b.dataset.copy;
+    }
+    setTimeout(() => { b.textContent = 'Copy address'; }, 2000);
+  }));
+
+  /* ── "No cookies" note: shown once; remembering that uses localStorage, not a cookie ── */
+  let seen = false;
+  try { seen = localStorage.getItem('ea-no-cookies') === '1'; } catch {}
+  if (!seen) {
+    const note = document.createElement('div');
+    note.className = 'cookie-note';
+    note.setAttribute('role', 'status');
+    note.innerHTML = '<span class="cookie-emoji" aria-hidden="true">🍪</span><p><strong>No cookies here.</strong> Experiment AI doesn’t use cookies, so there’s nothing to accept.</p><button type="button" class="btn btn-dark btn-sm">Nice</button>';
+    document.body.appendChild(note);
+    requestAnimationFrame(() => setTimeout(() => note.classList.add('show'), 900));
+    $('button', note).addEventListener('click', () => {
+      try { localStorage.setItem('ea-no-cookies', '1'); } catch {}
+      note.classList.remove('show');
+      setTimeout(() => note.remove(), 500);
+    });
+  }
+
   /* ── Cursor spotlight on glass cards ── */
   if (!reduced) {
-    $$('.feature, .table-card').forEach((card) => card.addEventListener('pointermove', (e) => {
+    $$('.feature, .table-card, .plan, .value, .about-card, .mail-card').forEach((card) => card.addEventListener('pointermove', (e) => {
       const r = card.getBoundingClientRect();
       card.style.setProperty('--sx', (e.clientX - r.left) + 'px');
       card.style.setProperty('--sy', (e.clientY - r.top) + 'px');
