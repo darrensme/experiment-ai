@@ -50,3 +50,7 @@ Static-only hosts (GitHub Pages, plain Vercel static) will show the landing page
 - AI logos come from `@lobehub/icons` (MIT). Check each company's brand guidelines before launch.
 - The "Meta Muse" chip uses Meta's logo. Swap `public/assets/ai/meta-color.svg` for the official Muse mark if you have it.
 - Comparison-table copy is marketing placeholder. Make sure every claim matches the product.
+
+## License
+
+Proprietary. © 2026 Experiment Labs. All rights reserved. See [LICENSE](LICENSE).
