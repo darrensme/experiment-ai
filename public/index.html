@@ -9,7 +9,8 @@
   <link rel="icon" type="image/png" href="assets/potion-orb-pfp-sky-bottle.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Bodoni+Moda:opsz,wght@6..96,700&family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Cormorant+Garamond:ital,wght@1,600&family=DM+Serif+Display:ital@1&family=Fraunces:opsz,wght@9..144,900&family=Geist:wght@300..700&family=Instrument+Serif:ital@0;1&family=Playfair+Display:ital,wght@1,700&family=Space+Grotesk:wght@500&family=Space+Mono:wght@700&family=Syne:wght@800&family=Unbounded:wght@600&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Bodoni+Moda:opsz,wght@6..96,700&family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Cormorant+Garamond:ital,wght@1,600&family=DM+Serif+Display:ital@1&family=Fraunces:opsz,wght@9..144,900&family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Playfair+Display:ital,wght@1,700&family=Space+Grotesk:wght@500&family=Space+Mono:wght@700&family=Syne:wght@800&family=Unbounded:wght@600&display=swap" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -25,79 +26,62 @@
   <div class="grain" aria-hidden="true"></div>
 
   <header class="nav">
-    <a class="studio" href="#top" aria-label="Experiment Labs home">
-      <img src="assets/potion-orb-icon-pfp.png" alt="" width="34" height="34" />
-      <span>Experiment Labs</span>
+    <a class="brand" href="#top" aria-label="Experiment AI home">
+      <img src="assets/potion-orb-pfp-sky-bottle.png" alt="" width="38" height="38" />
+      <span>Experiment <em class="serif">AI</em></span>
     </a>
     <nav class="nav-links" aria-label="Sections">
       <a href="#models">Models</a>
       <a href="#compare">Compare</a>
       <a href="#features">Features</a>
     </nav>
-    <div class="nav-auth">
-      <button class="btn btn-dark btn-sm" data-auth>Join waitlist</button>
-    </div>
+    <button class="btn btn-dark btn-sm nav-cta" data-auth>Join waitlist</button>
   </header>
 
   <main id="top">
     <!-- 1 · Hero -->
     <section class="hero">
-      <div class="logo-wrap" data-tilt>
-        <div class="logo-halo"></div>
-        <img class="logo-tile" src="assets/potion-orb-pfp-sky-bottle.png" alt="Experiment AI logo" width="180" height="180" />
+      <div class="hero-inner">
+        <div class="logo-wrap">
+          <img class="logo-tile" src="assets/potion-orb-pfp-sky-bottle.png" alt="Experiment AI logo" width="180" height="180" />
+        </div>
+
+        <h1 class="wordmark" aria-label="Experiment AI">
+          <span class="l" data-f="0" aria-hidden="true">E</span><span class="l" data-f="1" aria-hidden="true">x</span><span class="l" data-f="2" aria-hidden="true">p</span><span class="l" data-f="3" aria-hidden="true">e</span><span class="l" data-f="4" aria-hidden="true">r</span><span class="l" data-f="5" aria-hidden="true">i</span><span class="l" data-f="6" aria-hidden="true">m</span><span class="l" data-f="7" aria-hidden="true">e</span><span class="l" data-f="8" aria-hidden="true">n</span><span class="l" data-f="9" aria-hidden="true">t</span><span class="sp" aria-hidden="true"> </span><span class="l" data-f="10" aria-hidden="true">A</span><span class="l" data-f="11" aria-hidden="true">I</span>
+        </h1>
+
+        <p class="tagline bubble">The <em class="serif gold">only</em> AI you will need.</p>
+
+        <div class="cta">
+          <button class="btn btn-dark btn-lg magnetic" data-auth>Join the waitlist <span class="arrow">→</span></button>
+        </div>
+
+        <p class="byline"><span class="live-dot"></span>Launching soon · An <strong>Experiment Labs</strong> creation</p>
       </div>
-
-      <h1 class="wordmark" aria-label="Experiment AI">
-        <span class="l" data-f="0" aria-hidden="true">E</span><span class="l" data-f="1" aria-hidden="true">x</span><span class="l" data-f="2" aria-hidden="true">p</span><span class="l" data-f="3" aria-hidden="true">e</span><span class="l" data-f="4" aria-hidden="true">r</span><span class="l" data-f="5" aria-hidden="true">i</span><span class="l" data-f="6" aria-hidden="true">m</span><span class="l" data-f="7" aria-hidden="true">e</span><span class="l" data-f="8" aria-hidden="true">n</span><span class="l" data-f="9" aria-hidden="true">t</span><span class="sp" aria-hidden="true"> </span><span class="l" data-f="10" aria-hidden="true">A</span><span class="l" data-f="11" aria-hidden="true">I</span>
-      </h1>
-
-      <p class="tagline bubble">The <em class="serif gold">only</em> AI you will need.</p>
-
-      <div class="cta">
-        <button class="btn btn-dark btn-lg magnetic" data-auth>Join the waitlist <span class="arrow">→</span></button>
-      </div>
-      <p class="launch-note"><span class="live-dot"></span>Launching soon. Get in line early.</p>
-
-      <p class="byline">
-        <img src="assets/potion-orb-icon-pfp.png" alt="" width="20" height="20" />
-        An <strong>Experiment Labs</strong> creation
-      </p>
-
-      <a class="scroll-cue" href="#models" aria-label="Scroll to next section"><span></span></a>
     </section>
 
     <!-- 2 · Orbit of models -->
     <section class="models" id="models">
       <div class="section-head reveal">
-        <p class="eyebrow">Five minds. One bottle.</p>
         <h2>All major AIs, combined in one.</h2>
         <p class="sub bubble"><em class="serif blue">Simple</em> but <em class="serif gold">premium.</em></p>
       </div>
 
-      <div class="orbit reveal" aria-label="Grok, Claude, Gemini, ChatGPT and Meta Muse orbiting Experiment AI">
-        <div class="track t-outer"></div>
-        <div class="track t-inner"></div>
-        <div class="sparks"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-        <div class="core">
-          <div class="core-pulse"></div>
-          <img src="assets/potion-orb-pfp-sky-bottle.png" alt="Experiment AI" width="150" height="150" />
-        </div>
+      <div class="orbit" aria-label="Grok, Claude, Gemini, ChatGPT and Meta Muse orbiting Experiment AI">
+        <img class="core" src="assets/potion-orb-pfp-sky-bottle.png" alt="Experiment AI" />
         <div class="ring">
-          <div class="planet" style="--i:0"><div class="chip"><img src="assets/ai/grok.svg" alt="" /><span>Grok</span></div></div>
-          <div class="planet" style="--i:1"><div class="chip"><img src="assets/ai/claude-color.svg" alt="" /><span>Claude</span></div></div>
-          <div class="planet" style="--i:2"><div class="chip"><img src="assets/ai/gemini-color.svg" alt="" /><span>Gemini</span></div></div>
-          <div class="planet" style="--i:3"><div class="chip"><img src="assets/ai/openai.svg" alt="" /><span>ChatGPT</span></div></div>
-          <div class="planet" style="--i:4"><div class="chip"><img src="assets/ai/meta-color.svg" alt="" /><span>Meta Muse</span></div></div>
+          <div class="planet" style="--i:0"><img src="assets/ai/grok.svg" alt="Grok" /></div>
+          <div class="planet" style="--i:1"><img src="assets/ai/claude-color.svg" alt="Claude" /></div>
+          <div class="planet" style="--i:2"><img src="assets/ai/gemini-color.svg" alt="Gemini" /></div>
+          <div class="planet" style="--i:3"><img src="assets/ai/openai.svg" alt="ChatGPT" /></div>
+          <div class="planet" style="--i:4"><img src="assets/ai/meta-color.svg" alt="Meta Muse" /></div>
         </div>
       </div>
-
-      <p class="models-note reveal">Ask once. Experiment AI routes every message to the model that answers it best, so you never have to pick.</p>
     </section>
 
     <!-- 3 · Compare + capabilities -->
     <section class="compare" id="compare">
       <div class="section-head reveal">
-        <p class="eyebrow">How it compares</p>
         <h2>Why settle for <em class="serif blue">one</em>?</h2>
         <p class="lede">Every other AI app gives you a single model. Experiment AI gives you all of them, plus the tools to get real work done.</p>
       </div>
@@ -152,15 +136,15 @@
           <div class="f-head">
             <span class="f-num">02</span>
             <h3>Connects to your <em class="serif blue">tools</em></h3>
-            <p>Email, calendar, docs, chat and code. Plug them in once and it works across all of them.</p>
+            <p>Calendar, docs, chat, code and design. Plug them in once and it works across all of them.</p>
           </div>
           <div class="demo tools">
-            <div class="tool"><i style="--d:#ea4335"></i>Gmail<b></b></div>
+            <div class="tool"><i style="--d:#5e6ad2"></i>Linear<b></b></div>
             <div class="tool"><i style="--d:#4285f4"></i>Calendar<b></b></div>
             <div class="tool"><i style="--d:#111"></i>Notion<b></b></div>
             <div class="tool"><i style="--d:#611f69"></i>Slack<b></b></div>
             <div class="tool"><i style="--d:#24292f"></i>GitHub<b></b></div>
-            <div class="tool"><i style="--d:#0f9d58"></i>Drive<b></b></div>
+            <div class="tool"><i style="--d:#f24e1e"></i>Figma<b></b></div>
           </div>
         </article>
 
@@ -223,7 +207,7 @@
   <!-- Waitlist modal: create an account with Google or email + password (Firebase Authentication) -->
   <div class="modal" id="auth" role="dialog" aria-modal="true" aria-labelledby="auth-title" hidden>
     <div class="modal-backdrop" data-close></div>
-    <div class="modal-card glass">
+    <div class="modal-card glass" data-lenis-prevent>
       <button type="button" class="modal-x" data-close aria-label="Close">×</button>
       <img src="assets/potion-orb-pfp-sky-bottle.png" alt="" class="modal-logo" />
 
@@ -256,6 +240,9 @@
     </div>
   </div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.min.js"></script>
   <script type="module" src="script.js"></script>
 </body>
 </html>

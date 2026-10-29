@@ -49,18 +49,35 @@ import {
     }, 2600);
   }
 
-  /* ── Scroll: nav state, sky parallax, golden-hour glow ── */
+  /* ── Smooth scroll (Lenis) driving GSAP ScrollTrigger ── */
+  const { gsap, ScrollTrigger, Lenis } = window;
+  gsap.registerPlugin(ScrollTrigger);
+  const lenis = reduced ? null : new Lenis({ lerp: 0.09 });
+  if (lenis) {
+    lenis.on('scroll', ScrollTrigger.update);
+    gsap.ticker.add((time) => lenis.raf(time * 1000));
+    gsap.ticker.lagSmoothing(0);
+  }
+  $$('a[href^="#"]').forEach((a) => a.addEventListener('click', (e) => {
+    const target = a.getAttribute('href') === '#top' ? 0 : $(a.getAttribute('href'));
+    if (target === null) return;
+    e.preventDefault();
+    lenis ? lenis.scrollTo(target, { duration: 1.4 }) : (target === 0 ? scrollTo(0, 0) : target.scrollIntoView());
+  }));
+
+  /* ── Scroll: nav hides going down / returns going up; sky parallax + golden-hour glow ── */
   const nav = $('.nav');
   const root = document.documentElement;
-  const onScroll = () => {
-    const y = scrollY;
-    const max = Math.max(1, root.scrollHeight - innerHeight);
-    nav.classList.toggle('scrolled', y > 20);
-    root.style.setProperty('--scroll', y.toFixed(0));
-    root.style.setProperty('--p', (y / max).toFixed(3));
-  };
-  addEventListener('scroll', onScroll, { passive: true });
-  onScroll();
+  ScrollTrigger.create({
+    start: 0,
+    end: 'max',
+    onUpdate: (self) => {
+      const y = self.scroll();
+      nav.classList.toggle('hide', self.direction === 1 && y > 120);
+      root.style.setProperty('--scroll', y.toFixed(0));
+      root.style.setProperty('--p', self.progress.toFixed(3));
+    },
+  });
 
   /* ── Hero logo tilts toward the cursor ── */
   const tile = $('.logo-tile');
@@ -86,13 +103,27 @@ import {
     });
   }
 
-  /* ── Reveal on scroll ── */
-  const revealer = new IntersectionObserver((entries) => {
-    entries.forEach((en) => {
-      if (en.isIntersecting) { en.target.classList.add('in'); revealer.unobserve(en.target); }
+  /* ── GSAP: hero intro, hero parallax out, section reveals, orbit entrance ── */
+  if (!reduced) {
+    gsap.from(['.logo-wrap', '.tagline', '.cta', '.byline'], {
+      y: 40, autoAlpha: 0, duration: 1.2, ease: 'power3.out', stagger: 0.12, delay: 0.15,
     });
-  }, { threshold: 0.15 });
-  $$('.reveal').forEach((el) => revealer.observe(el));
+    gsap.to('.hero-inner', {
+      y: -120, scale: 0.94, autoAlpha: 0, ease: 'none',
+      scrollTrigger: { trigger: '.hero', start: 'top top', end: 'bottom top', scrub: true },
+    });
+    $$('.reveal').forEach((el) => {
+      gsap.from(el, {
+        y: 70, autoAlpha: 0, duration: 1.1, ease: 'power3.out',
+        delay: el.classList.contains('feature') ? ($$('.feature').indexOf(el) % 2) * 0.12 : 0,
+        scrollTrigger: { trigger: el, start: 'top 88%' },
+      });
+    });
+    gsap.from('.orbit', {
+      scale: 0.55, rotate: -40, autoAlpha: 0, ease: 'none',
+      scrollTrigger: { trigger: '.orbit', start: 'top 95%', end: 'center 60%', scrub: 1 },
+    });
+  }
 
   /* ── Feature demos: each loops only while its card is on screen ── */
   const visible = new WeakMap();
@@ -195,12 +226,12 @@ import {
     if (auth.currentUser) fillDone(auth.currentUser);
     showStep(auth.currentUser ? 'done' : 'join');
     modal.hidden = false;
-    document.body.style.overflow = 'hidden';
+    lenis?.stop();
     setTimeout(() => $(`.step-${modal.dataset.step} button`, modal)?.focus(), 50);
   };
   const close = () => {
     modal.hidden = true;
-    document.body.style.overflow = '';
+    lenis?.start();
     lastFocus?.focus();
   };
 
@@ -334,17 +365,8 @@ import {
     open();
   }
 
-  /* ── Hero drifts up and fades as you scroll into the orbit ── */
-  const hero = $('.hero');
+  /* ── Cursor spotlight on glass cards ── */
   if (!reduced) {
-    const heroScroll = () => {
-      const p = Math.min(1, scrollY / (innerHeight * 0.9));
-      hero.style.setProperty('--hp', p.toFixed(3));
-    };
-    addEventListener('scroll', heroScroll, { passive: true });
-    heroScroll();
-
-    /* cursor spotlight on glass cards */
     $$('.feature, .table-card').forEach((card) => card.addEventListener('pointermove', (e) => {
       const r = card.getBoundingClientRect();
       card.style.setProperty('--sx', (e.clientX - r.left) + 'px');
