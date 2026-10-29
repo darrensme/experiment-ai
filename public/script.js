@@ -12,43 +12,6 @@ import {
 
   document.getElementById('year').textContent = new Date().getFullYear();
 
-  /* ── Wordmark: every letter its own font ──
-     Each letter owns one of 12 font classes (f0–f11). On load they spin like a slot machine and
-     land on their own font; every few seconds two letters trade fonts, so no two ever match. */
-  const FONT_COUNT = 12;
-  const letters = $$('.wordmark .l');
-  const setFont = (el, f) => {
-    el.className = el.className.replace(/\bf\d+\b/g, '').trim() + ' f' + f;
-    el.dataset.cur = f;
-  };
-  letters.forEach((el) => setFont(el, el.dataset.f));
-
-  if (!reduced) {
-    letters.forEach((el, i) => {
-      let n = 0;
-      const spins = 8 + i * 2;
-      const t = setInterval(() => {
-        if (++n >= spins) {
-          clearInterval(t);
-          setFont(el, el.dataset.f);
-          el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
-          return;
-        }
-        setFont(el, Math.floor(Math.random() * FONT_COUNT));
-      }, 55);
-    });
-
-    setInterval(() => {
-      const a = letters[Math.floor(Math.random() * letters.length)];
-      let b = a;
-      while (b === a) b = letters[Math.floor(Math.random() * letters.length)];
-      const fa = a.dataset.cur;
-      setFont(a, b.dataset.cur);
-      setFont(b, fa);
-      [a, b].forEach((el) => { el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); });
-    }, 2600);
-  }
-
   /* ── Smooth scroll (Lenis) driving GSAP ScrollTrigger ── */
   const { gsap, ScrollTrigger, Lenis } = window;
   gsap.registerPlugin(ScrollTrigger);
@@ -105,7 +68,7 @@ import {
 
   /* ── GSAP: hero intro, hero parallax out, section reveals, orbit entrance ── */
   if (!reduced) {
-    gsap.from(['.logo-wrap', '.tagline', '.cta', '.byline'], {
+    gsap.from(['.logo-wrap', '.wordmark', '.tagline', '.cta', '.byline'], {
       y: 40, autoAlpha: 0, duration: 1.2, ease: 'power3.out', stagger: 0.12, delay: 0.15,
     });
     gsap.to('.hero-inner', {
