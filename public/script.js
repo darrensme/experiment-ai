@@ -1,3 +1,9 @@
+import { auth, authMessage, db } from './firebase.js';
+import {
+  GoogleAuthProvider, createUserWithEmailAndPassword, getRedirectResult, onAuthStateChanged, signInWithEmailAndPassword,
+  signInWithPopup, signInWithRedirect, signOut, updateProfile,
+} from 'https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js';
+
 (() => {
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -170,27 +176,27 @@
     ['', '}'],
   ];
 
-  /* ── Sign up / Log in modal (front end only) ── */
+  /* ── Waitlist: create an account with Google or email + password (Firebase Auth), saved to waitlist/{uid} ── */
   const modal = $('#auth');
-  const form = $('form', modal);
   const msg = $('.form-msg', modal);
-  const title = $('#auth-title');
-  const submit = $('button[type=submit]', form);
+  const joinButtons = $$('[data-auth]');
+  joinButtons.forEach((b) => { b.dataset.label = b.innerHTML; });
   let lastFocus = null;
 
-  const setMode = (mode) => {
-    modal.dataset.mode = mode;
-    title.textContent = mode === 'signup' ? 'Create your account' : 'Welcome back';
-    $$('.seg button', modal).forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
-    $('input[name=password]', form).autocomplete = mode === 'signup' ? 'new-password' : 'current-password';
-    msg.textContent = ''; msg.classList.remove('err');
+  const say = (text, isErr = false) => {
+    msg.textContent = text;
+    msg.classList.toggle('err', isErr);
   };
-  const open = (mode) => {
+  const showStep = (step) => { modal.dataset.step = step; };
+
+  const open = () => {
     lastFocus = document.activeElement;
-    setMode(mode);
+    say('');
+    if (auth.currentUser) fillDone(auth.currentUser);
+    showStep(auth.currentUser ? 'done' : 'join');
     modal.hidden = false;
     document.body.style.overflow = 'hidden';
-    setTimeout(() => $(mode === 'signup' ? 'input[name=name]' : 'input[name=email]', form).focus(), 50);
+    setTimeout(() => $(`.step-${modal.dataset.step} button`, modal)?.focus(), 50);
   };
   const close = () => {
     modal.hidden = true;
@@ -198,66 +204,134 @@
     lastFocus?.focus();
   };
 
-  $$('[data-auth]').forEach((b) => b.addEventListener('click', () => open(b.dataset.auth)));
-  $$('.seg button', modal).forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
-  $$('[data-close]', modal).forEach((b) => b.addEventListener('click', close));
-  addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden) close(); });
+  function fillDone(user) {
+    const first = (user.displayName || '').split(' ')[0];
+    $('.done-name', modal).textContent = first ? `, ${first}` : '';
+    $('.done-email', modal).textContent = user.email || 'you';
+  }
 
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const mode = modal.dataset.mode;
-    const body = { email: form.email.value.trim(), password: form.password.value };
-    if (mode === 'signup') body.name = form.name.value.trim();
-    msg.classList.remove('err');
-    if (mode === 'signup' && !body.name) return fail('Enter your name.');
-    if (!/^\S+@\S+\.\S+$/.test(body.email)) return fail('Enter a valid email.');
-    if (mode === 'signup' && body.password.length < 8) return fail('Password needs at least 8 characters.');
-    if (!body.password) return fail('Enter your password.');
+  function markJoined(joined) {
+    document.body.classList.toggle('joined', joined);
+    joinButtons.forEach((b) => {
+      b.innerHTML = !joined ? b.dataset.label
+        : b.classList.contains('btn-sm') ? '✓ On the waitlist' : 'You’re on the list ✓';
+    });
+  }
 
-    submit.disabled = true;
-    msg.textContent = mode === 'signup' ? 'Creating your account…' : 'Logging you in…';
+  // Firestore is only needed at sign-up, so it loads on demand. One save per person, however many callers.
+  const saves = new Map();
+  function saveSpot(user, providerId) {
+    if (!saves.has(user.uid)) {
+      saves.set(user.uid, writeSpot(user, providerId).catch((err) => { saves.delete(user.uid); throw err; }));
+    }
+    return saves.get(user.uid);
+  }
+  async function writeSpot(user, providerId) {
+    const { doc, getDoc, serverTimestamp, setDoc } = await import('https://www.gstatic.com/firebasejs/13.0.0/firebase-firestore.js');
+    const ref = doc(db, 'waitlist', user.uid);
+    if ((await getDoc(ref)).exists()) return;
+    await setDoc(ref, {
+      name: (user.displayName || '').slice(0, 100),
+      email: user.email ?? null,
+      provider: providerId,
+      joinedAt: serverTimestamp(),
+    });
+  }
+
+  async function finish(cred) {
+    await saveSpot(cred.user, cred.providerId);
+    fillDone(cred.user);
+    markJoined(true);
+    say('');
+    showStep('done');
+  }
+
+  const google = new GoogleAuthProvider();
+  const form = $('.email-form', modal);
+  let joining = false; // true while a sign-in is in flight, so the auth listener below doesn't save first
+  const lock = (locked) => {
+    joining = locked;
+    $$('button', $('.step-join', modal)).forEach((b) => { b.disabled = locked; });
+  };
+
+  $('[data-provider="google"]', modal).addEventListener('click', async () => {
+    lock(true);
+    say('Opening Google…');
     try {
-      const res = await fetch(`/api/${mode}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Something went wrong.');
-      msg.textContent = '✦ Welcome to Experiment AI';
-      location.href = '/app';
+      await finish(await signInWithPopup(auth, google));
     } catch (err) {
-      fail(location.protocol === 'file:' ? 'Start the server with “npm start”, then open http://localhost:3000' : err.message);
+      if (err.code === 'auth/popup-blocked') return signInWithRedirect(auth, google);
+      if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') return say('');
+      fail(err);
     } finally {
-      submit.disabled = false;
+      lock(false);
     }
   });
 
-  function fail(text) {
-    msg.textContent = text;
-    msg.classList.add('err');
+  // One form for both: new email → create the account; existing email → log in to see your spot.
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = form.name.value.trim();
+    const email = form.email.value.trim();
+    const password = form.password.value;
+    if (!/^\S+@\S+\.\S+$/.test(email)) return say('Enter a valid email.', true);
+    if (password.length < 8) return say('Password needs at least 8 characters.', true);
+
+    lock(true);
+    say('Saving your spot…');
+    try {
+      let cred;
+      try {
+        cred = await createUserWithEmailAndPassword(auth, email, password);
+        if (name) await updateProfile(cred.user, { displayName: name.slice(0, 60) });
+      } catch (err) {
+        if (err.code !== 'auth/email-already-in-use') throw err;
+        cred = await signInWithEmailAndPassword(auth, email, password);
+      }
+      await finish({ user: cred.user, providerId: 'password' });
+      form.reset();
+    } catch (err) {
+      fail(err);
+    } finally {
+      lock(false);
+    }
+  });
+
+  function fail(err) {
+    console.error(err);
+    say(err.code?.startsWith('auth/') ? authMessage(err) : 'Signed in, but we couldn’t save your spot. Please try again.', true);
   }
 
-  /* ── Already signed in? Swap the auth buttons for “Open app” ── */
-  if (location.protocol !== 'file:') {
-    fetch('/api/me').then((r) => (r.ok ? r.json() : null)).then((data) => {
-      if (!data?.user) return;
-      document.body.classList.add('signed-in');
-      $$('[data-auth="login"]').forEach((b) => b.remove());
-      $$('[data-auth="signup"]').forEach((b) => {
-        const a = document.createElement('a');
-        a.className = b.className;
-        a.href = '/app';
-        a.innerHTML = 'Open app <span class="arrow">→</span>';
-        b.replaceWith(a);
-      });
-    }).catch(() => {});
-  }
+  joinButtons.forEach((b) => b.addEventListener('click', open));
+  $$('[data-close]', modal).forEach((b) => b.addEventListener('click', close));
+  addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden) close(); });
 
-  const wanted = new URLSearchParams(location.search).get('auth');
-  if (wanted === 'login' || wanted === 'signup') {
+  $('[data-signout]', modal).addEventListener('click', async () => {
+    await signOut(auth);
+    markJoined(false);
+    showStep('join');
+  });
+
+  // Coming back from the redirect fallback.
+  getRedirectResult(auth).then((cred) => {
+    if (!cred) return;
+    open();
+    return finish(cred);
+  }).catch((err) => {
+    open();
+    fail(err);
+  });
+
+  // Returning visitors: show they're already in line (and save the spot if an earlier save failed).
+  onAuthStateChanged(auth, (user) => {
+    markJoined(!!user);
+    if (user && !joining) saveSpot(user, user.providerData[0]?.providerId || 'password').catch(() => {});
+  });
+
+  const params = new URLSearchParams(location.search);
+  if (params.has('join') || params.has('auth')) {
     history.replaceState(null, '', location.pathname);
-    open(wanted);
+    open();
   }
 
   /* ── Hero drifts up and fades as you scroll into the orbit ── */

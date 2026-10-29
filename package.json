@@ -2,15 +2,14 @@
   "name": "experiment-ai",
   "version": "1.0.0",
   "private": true,
-  "description": "Experiment AI by Experiment Labs: landing page, accounts and chat app.",
+  "description": "Experiment AI by Experiment Labs: landing page with a Firebase-backed waitlist.",
   "license": "UNLICENSED",
   "author": "Experiment Labs",
   "type": "module",
   "engines": {
-    "node": ">=22.13"
+    "node": ">=18"
   },
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning server.js",
-    "dev": "node --disable-warning=ExperimentalWarning --watch server.js"
+    "start": "node server.js"
   }
 }

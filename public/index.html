@@ -35,8 +35,7 @@
       <a href="#features">Features</a>
     </nav>
     <div class="nav-auth">
-      <button class="btn btn-ghost btn-sm" data-auth="login">Log in</button>
-      <button class="btn btn-dark btn-sm" data-auth="signup">Sign up</button>
+      <button class="btn btn-dark btn-sm" data-auth>Join waitlist</button>
     </div>
   </header>
 
@@ -55,9 +54,9 @@
       <p class="tagline bubble">The <em class="serif gold">only</em> AI you will need.</p>
 
       <div class="cta">
-        <button class="btn btn-dark btn-lg magnetic" data-auth="signup">Sign up <span class="arrow">→</span></button>
-        <button class="btn btn-ghost btn-lg magnetic" data-auth="login">Log in</button>
+        <button class="btn btn-dark btn-lg magnetic" data-auth>Join the waitlist <span class="arrow">→</span></button>
       </div>
+      <p class="launch-note"><span class="live-dot"></span>Launching soon. Get in line early.</p>
 
       <p class="byline">
         <img src="assets/potion-orb-icon-pfp.png" alt="" width="20" height="20" />
@@ -206,9 +205,9 @@
     <section class="final reveal">
       <img src="assets/potion-orb-pfp-sky-bottle.png" alt="" class="final-logo" />
       <h2>Ready to <em class="serif gold">experiment</em>?</h2>
+      <p class="lede">Join the waitlist and be first in line when Experiment AI launches.</p>
       <div class="cta">
-        <button class="btn btn-dark btn-lg magnetic" data-auth="signup">Sign up <span class="arrow">→</span></button>
-        <button class="btn btn-ghost btn-lg magnetic" data-auth="login">Log in</button>
+        <button class="btn btn-dark btn-lg magnetic" data-auth>Join the waitlist <span class="arrow">→</span></button>
       </div>
     </section>
   </main>
@@ -221,26 +220,42 @@
     <p>Experiment AI is made by Experiment Labs. © <span id="year">2026</span></p>
   </footer>
 
-  <!-- Auth modal (front-end only; wire to your backend later) -->
+  <!-- Waitlist modal: create an account with Google or email + password (Firebase Authentication) -->
   <div class="modal" id="auth" role="dialog" aria-modal="true" aria-labelledby="auth-title" hidden>
     <div class="modal-backdrop" data-close></div>
-    <form class="modal-card glass" novalidate>
+    <div class="modal-card glass">
       <button type="button" class="modal-x" data-close aria-label="Close">×</button>
       <img src="assets/potion-orb-pfp-sky-bottle.png" alt="" class="modal-logo" />
-      <div class="seg" role="tablist">
-        <button type="button" role="tab" data-mode="signup">Sign up</button>
-        <button type="button" role="tab" data-mode="login">Log in</button>
-        <span class="seg-pill"></span>
+
+      <div class="step step-join">
+        <h3 id="auth-title">Join the <em class="serif gold">waitlist</em></h3>
+        <p class="modal-sub">Create your account now and you’ll be first in line when Experiment AI launches. We’ll only email you about the launch.</p>
+        <button type="button" class="btn btn-lg full btn-google" data-provider="google">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.46a5.52 5.52 0 0 1-2.4 3.62v3h3.88c2.27-2.09 3.58-5.17 3.58-8.81z"/><path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.94-2.91l-3.88-3.01c-1.07.72-2.45 1.15-4.06 1.15-3.12 0-5.77-2.11-6.71-4.95H1.28v3.11A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.29 14.28A7.2 7.2 0 0 1 4.91 12c0-.79.14-1.56.38-2.28V6.61H1.28A12 12 0 0 0 0 12c0 1.94.46 3.77 1.28 5.39l4.01-3.11z"/><path fill="#EA4335" d="M12 4.77c1.76 0 3.34.61 4.59 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.28 6.61l4.01 3.11C6.23 6.88 8.88 4.77 12 4.77z"/></svg>
+          Continue with Google
+        </button>
+        <div class="or"><span>or</span></div>
+        <form class="email-form" novalidate>
+          <label class="field"><span>Name</span><input type="text" name="name" autocomplete="name" placeholder="Ada Lovelace" maxlength="60" /></label>
+          <label class="field"><span>Email</span><input type="email" name="email" autocomplete="email" placeholder="you@example.com" required /></label>
+          <label class="field"><span>Password</span><input type="password" name="password" autocomplete="new-password" placeholder="At least 8 characters" required minlength="8" /></label>
+          <button class="btn btn-dark btn-lg full" type="submit">Join the waitlist</button>
+        </form>
+        <p class="fine">Already joined? Enter the same email and password to check your spot.</p>
       </div>
-      <h3 id="auth-title">Create your account</h3>
-      <label class="field name-field"><span>Name</span><input type="text" name="name" autocomplete="name" placeholder="Ada Lovelace" /></label>
-      <label class="field"><span>Email</span><input type="email" name="email" autocomplete="email" placeholder="you@example.com" required /></label>
-      <label class="field"><span>Password</span><input type="password" name="password" autocomplete="current-password" placeholder="At least 8 characters" required minlength="8" /></label>
-      <button class="btn btn-dark btn-lg full" type="submit">Continue</button>
+
+      <div class="step step-done">
+        <div class="done-badge">✓</div>
+        <h3>You’re on the <em class="serif gold">list</em><span class="done-name"></span></h3>
+        <p class="modal-sub">We’ll email <strong class="done-email"></strong> the moment Experiment AI launches. Sit tight, it’s brewing.</p>
+        <button type="button" class="btn btn-dark btn-lg full" data-close>Done</button>
+        <button type="button" class="link-btn" data-signout>Not you? Sign out</button>
+      </div>
+
       <p class="form-msg" aria-live="polite"></p>
-    </form>
+    </div>
   </div>
 
-  <script src="script.js"></script>
+  <script type="module" src="script.js"></script>
 </body>
 </html>
