@@ -6,15 +6,33 @@ rules_version = '2';
 // emailCodes/{uid} (verification codes) has no rule, so browsers can't touch it; only the server functions can.
 service cloud.firestore {
   match /databases/{database}/documents {
+    function counter() { return /databases/$(database)/documents/meta/waitlist; }
+    function entry(uid) { return /databases/$(database)/documents/waitlist/$(uid); }
+    function verified() { return request.auth != null && request.auth.token.email_verified == true; }
+
     match /waitlist/{uid} {
       allow get: if request.auth != null && request.auth.uid == uid;
-      allow create: if request.auth != null && request.auth.uid == uid
-        && request.auth.token.email_verified == true
-        && request.resource.data.keys().hasOnly(['name', 'email', 'provider', 'joinedAt'])
+      allow create: if verified() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['name', 'email', 'provider', 'joinedAt', 'position'])
         && request.resource.data.name is string && request.resource.data.name.size() <= 100
         && request.resource.data.email == request.auth.token.get('email', null)
         && request.resource.data.provider in ['google.com', 'password']
-        && request.resource.data.joinedAt == request.time;
+        && request.resource.data.joinedAt == request.time
+        // takes the next number in line: the counter goes up by exactly one in the same write
+        && request.resource.data.position == getAfter(counter()).data.count
+        && ((!exists(counter()) && getAfter(counter()).data.count == 1)
+          || (exists(counter()) && getAfter(counter()).data.count == get(counter()).data.count + 1));
+    }
+
+    // meta/waitlist { count }: how many people are in line. Anyone can read it; it only changes by one,
+    // in the same write as the person's own new waitlist entry.
+    match /meta/waitlist {
+      allow get: if true;
+      allow create, update: if verified()
+        && request.resource.data.keys().hasOnly(['count'])
+        && !exists(entry(request.auth.uid))
+        && existsAfter(entry(request.auth.uid))
+        && getAfter(entry(request.auth.uid)).data.position == request.resource.data.count;
     }
   }
 }

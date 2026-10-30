@@ -8,10 +8,13 @@ The website for **Experiment AI** by **Experiment Labs**, live at https://experi
 | About us (Experiment Labs) | `/aboutus` |
 | Contact (contact@experimentai.dev) | `/contact` |
 | Pricing (Free, Light, Pro, Max 5× / 10×) | `/pricing` |
+| Your place in line (signed-in only, noindex) | `/home` |
 
 People join the **waitlist** with **Google** or **email + password** (Firebase Authentication). Email sign-ups
 confirm a **6-digit code** emailed from `noreply@experimentai.dev`; Google accounts are already verified. Each
-verified person's spot is saved in **Firestore** at `waitlist/{uid}`.
+verified person's spot is saved in **Firestore** at `waitlist/{uid}` with their **place in line** (`position`),
+numbered by the `meta/waitlist` counter. Anyone already in line who opens `/` is sent to `/home`, which shows
+their number and that we'll email them at early access.
 
 **No cookies:** Analytics runs with storage consent denied (cookieless pings), sign-in lives in browser storage,
 and the "no cookies" note remembers its dismissal in `localStorage`. Keep it that way. The note promises it.
@@ -26,7 +29,7 @@ npx vercel dev     # pages + the api/ functions, with env vars from Vercel
 
 ```
 public/              static site (Vercel serves it with clean URLs)
-  index.html  aboutus.html  contact.html  pricing.html
+  index.html  aboutus.html  contact.html  pricing.html  home.html
   styles.css         sky theme, glass, every page's layout
   script.js          GSAP + Lenis, waitlist + code verification, pricing toggle, no-cookies note
   firebase.js        Firebase config, Auth, Firestore, cookieless Analytics
@@ -42,7 +45,7 @@ server.js            static preview server
 vercel.json          clean URLs + security headers
 ```
 
-Nav, footer and the waitlist modal are repeated in each page. Change them in all four.
+Nav, footer and the waitlist modal are repeated in each page. Change them in all five.
 
 ## Setup
 

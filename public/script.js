@@ -1,4 +1,6 @@
 import { auth, authMessage, db } from './firebase.js';
+
+const FIRESTORE = 'https://www.gstatic.com/firebasejs/13.0.0/firebase-firestore.js';
 import {
   GoogleAuthProvider, createUserWithEmailAndPassword, getRedirectResult, onAuthStateChanged, signInWithEmailAndPassword,
   signInWithPopup, signInWithRedirect, signOut, updateProfile,
@@ -166,13 +168,13 @@ import {
   };
 
   const CODE = [
-    ['c', '// one question, the best model answers\n'],
+    ['c', '// every major model, one chat\n'],
     ['k', 'const '], ['', 'models = ['], ['s', '"grok"'], ['', ', '], ['s', '"claude"'], ['', ', '],
     ['s', '"gemini"'], ['', ', '], ['s', '"chatgpt"'], ['', ', '], ['s', '"muse"'], ['', '];\n\n'],
-    ['k', 'export async function '], ['f', 'ask'], ['', '(task) {\n'],
-    ['', '  '], ['k', 'const '], ['', 'best = '], ['f', 'rank'], ['', '(models, task)['], ['n', '0'], ['', '];\n'],
-    ['', '  '], ['k', 'return '], ['f', 'experiment'], ['', '(best).'], ['f', 'run'], ['', '(task);\n'],
-    ['', '}'],
+    ['k', 'export async function '], ['f', 'ask'], ['', '(model, task) {\n'],
+    ['', '  '], ['k', 'return '], ['f', 'experiment'], ['', '(model).'], ['f', 'run'], ['', '(task);\n'],
+    ['', '}\n\n'],
+    ['f', 'ask'], ['', '('], ['s', '"claude"'], ['', ', '], ['s', '"fix this bug"'], ['', ');'],
   ];
 
   /* ── Waitlist: Google, or email + password (Firebase Auth). Email sign-ups confirm a 6-digit code that
@@ -237,20 +239,34 @@ import {
     }
     return saves.get(user.uid);
   }
+  // Each new spot takes the next number in line: the entry and meta/waitlist's counter are written together
+  // (firestore.rules only allows the counter to go up by one, alongside the person's own new entry).
   async function writeSpot(user, providerId) {
-    const { doc, getDoc, serverTimestamp, setDoc } = await import('https://www.gstatic.com/firebasejs/13.0.0/firebase-firestore.js');
+    const { doc, runTransaction, serverTimestamp } = await import(FIRESTORE);
     const ref = doc(db, 'waitlist', user.uid);
-    if ((await getDoc(ref)).exists()) return;
-    await setDoc(ref, {
-      name: (user.displayName || '').slice(0, 100),
-      email: user.email ?? null,
-      provider: providerId,
-      joinedAt: serverTimestamp(),
+    const counter = doc(db, 'meta', 'waitlist');
+    await runTransaction(db, async (tx) => {
+      if ((await tx.get(ref)).exists()) return;
+      const snap = await tx.get(counter);
+      const position = (snap.exists() ? snap.data().count : 0) + 1;
+      tx.set(counter, { count: position });
+      tx.set(ref, {
+        name: (user.displayName || '').slice(0, 100),
+        email: user.email ?? null,
+        provider: providerId,
+        joinedAt: serverTimestamp(),
+        position,
+      });
     });
   }
 
   async function finish(cred) {
     await saveSpot(cred.user, cred.providerId);
+    if (location.pathname !== '/home') {
+      say('✦ You’re on the list. Taking you to your spot…');
+      location.href = '/home';
+      return;
+    }
     fillDone(cred.user);
     markJoined(true);
     say('');
@@ -389,6 +405,7 @@ import {
 
   $$('[data-signout]', modal).forEach((b) => b.addEventListener('click', async () => {
     await signOut(auth);
+    if (location.pathname === '/home') return location.replace('/');
     markJoined(false);
     say('');
     showStep('join');
@@ -404,12 +421,44 @@ import {
     fail(err);
   });
 
-  // Returning visitors: show they're already in line (and save the spot if an earlier save failed).
+  // Returning visitors: anyone already in line goes to /home (and the spot is saved if an earlier save failed).
+  const onHome = location.pathname === '/home';
   onAuthStateChanged(auth, (user) => {
     const ok = !!user && isVerified(user);
     markJoined(ok);
-    if (ok && !joining) saveSpot(user, user.providerData[0]?.providerId || 'password').catch(() => {});
+    if (onHome) return showHome(user, ok);
+    if (ok && !joining) {
+      const saved = saveSpot(user, user.providerData[0]?.providerId || 'password');
+      if (location.pathname === '/') saved.then(() => location.replace('/home')).catch(() => {});
+      else saved.catch(() => {});
+    }
   });
+
+  /* ── /home: your place in line ── */
+  async function showHome(user, ok) {
+    if (!ok) return location.replace('/?join'); // not signed in, or email not confirmed yet
+    const first = (user.displayName || '').split(' ')[0];
+    $('.home-name').textContent = first ? `, ${first}` : '';
+    $('.home-email').textContent = user.email || 'you';
+    try {
+      await saveSpot(user, user.providerData[0]?.providerId || 'password');
+      const { doc, getDoc } = await import(FIRESTORE);
+      const position = (await getDoc(doc(db, 'waitlist', user.uid))).data()?.position;
+      if (!position) throw new Error('No position on this entry');
+      $('.place').textContent = position.toLocaleString();
+      $('.place-ahead').textContent = position === 1 ? 'You’re first in line!'
+        : `${(position - 1).toLocaleString()} ${position === 2 ? 'person' : 'people'} ahead of you`;
+    } catch (err) {
+      console.error(err);
+      $('.place-number').hidden = true;
+      $('.place-ahead').textContent = 'You’re on the list. We couldn’t load your number just now.';
+    }
+    document.body.classList.remove('auth-pending');
+  }
+  $$('[data-page-signout]').forEach((b) => b.addEventListener('click', async () => {
+    await signOut(auth);
+    location.replace('/');
+  }));
 
   const params = new URLSearchParams(location.search);
   if (params.has('join') || params.has('auth')) {
