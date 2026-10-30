@@ -38,7 +38,7 @@ public/              static site (Vercel serves it with clean URLs)
 api/                 Vercel functions (Node)
   send-code.js       POST: emails a 6-digit code (1/min, 5/hour, expires in 10 min)
   verify-code.js     POST {code}: checks it (5 tries) and marks the Firebase account emailVerified
-  _email.js          the code email (HTML + text), sent with Brevo
+  _email.js          the code email (HTML + text), sent with Resend
   _shared.js         Firebase Admin, ID-token check, code hashing
 firestore.rules      publish in the Firebase console
 server.js            static preview server
@@ -53,7 +53,7 @@ Nav, footer and the waitlist modal are repeated in each page. Change them in all
 
 | Name | Value |
 |---|---|
-| `BREVO_API_KEY` | Brevo API key (SMTP & API → API Keys) |
+| `RESEND_API_KEY` | Resend API key with **Full access** (lets setup add the domain) |
 | `FIREBASE_SERVICE_ACCOUNT` | Firebase service-account JSON (Project settings → Service accounts → Generate new private key) |
 
 Without them the site works, but email sign-ups stop at "Email verification isn't set up yet" (Google still works).
@@ -61,10 +61,11 @@ Without them the site works, but email sign-ups stop at "Email verification isn'
 ### Email
 
 - **Inboxes** (contact@ and others) are **Zoho Mail**: MX `mx/mx2/mx3.zoho.com`, DKIM `zmail._domainkey`. Leave them alone.
-- **Sending** the verification code (noreply@experimentai.dev) goes through **Brevo**. Authenticate `experimentai.dev`
-  in Brevo and add its DNS records in Vercel. A domain has **one** SPF record, so merge, don't add:
-  `v=spf1 include:zohomail.com include:spf.brevo.com ~all`. Add DMARC: `_dmarc` TXT `v=DMARC1; p=none;`.
-- In Brevo, turn off open and click tracking for transactional email; tracked links look spammy in a code email.
+- **Sending** the verification code (noreply@experimentai.dev) goes through **Resend** (free: 100/day, 3,000/month;
+  no postal address needed for transactional email). Add `experimentai.dev` in Resend and create its DNS records in
+  Vercel: DKIM `resend._domainkey`, plus MX and SPF on the `send` subdomain. Resend's SPF lives on `send.`, so the
+  root SPF (`include:zohomail.com`) stays as it is. Add DMARC: `_dmarc` TXT `v=DMARC1; p=none;`.
+- Emailing the whole waitlist at launch is marketing email and legally needs a postal address (e.g. a P.O. box).
 
 ### Firebase
 

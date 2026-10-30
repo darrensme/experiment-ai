@@ -1,32 +1,31 @@
-// Verification-code email, sent through Brevo's transactional API from noreply@experimentai.dev.
+// Verification-code email, sent through Resend from noreply@experimentai.dev.
 // Built for Gmail's code detection: the code is in the subject, in the first line of the text version,
 // and set apart on its own in the HTML, next to the words "verification code".
 import { randomUUID } from 'node:crypto';
 import { HttpError } from './_shared.js';
 
 const SITE = 'https://experimentai.dev';
-const SENDER = { name: 'Experiment AI', email: 'noreply@experimentai.dev' };
+const FROM = 'Experiment AI <noreply@experimentai.dev>';
 
 export async function sendCodeEmail(to, code) {
-  const key = process.env.BREVO_API_KEY;
+  const key = process.env.RESEND_API_KEY;
   if (!key) throw new HttpError(503, 'Email verification isn’t set up yet. Please try again later.');
 
-  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+  const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
-    headers: { 'api-key': key, 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      sender: SENDER,
-      to: [{ email: to }],
+      from: FROM,
+      to: [to],
       subject: `${code} is your Experiment AI verification code`,
-      htmlContent: html(code),
-      textContent: text(code),
+      html: html(code),
+      text: text(code),
       // A unique id per email stops Gmail from threading every code into one conversation.
       headers: { 'X-Entity-Ref-ID': randomUUID() },
-      tags: ['verification-code'],
     }),
   });
   if (!res.ok) {
-    console.error('Brevo error', res.status, await res.text());
+    console.error('Resend error', res.status, await res.text());
     throw new HttpError(502, 'We couldn’t send the email. Please try again in a moment.');
   }
 }
