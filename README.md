@@ -38,7 +38,7 @@ public/              static site (Vercel serves it with clean URLs)
 api/                 Vercel functions (Node)
   send-code.js       POST: emails a 6-digit code (1/min, 5/hour, expires in 10 min)
   verify-code.js     POST {code}: checks it (5 tries) and marks the Firebase account emailVerified
-  _email.js          the code email (HTML + text), sent with Resend
+  _email.js          the code email (HTML + text), sent with Brevo
   _shared.js         Firebase Admin, ID-token check, code hashing
 firestore.rules      publish in the Firebase console
 server.js            static preview server
@@ -53,15 +53,18 @@ Nav, footer and the waitlist modal are repeated in each page. Change them in all
 
 | Name | Value |
 |---|---|
-| `RESEND_API_KEY` | Resend API key with sending access |
+| `BREVO_API_KEY` | Brevo API key (SMTP & API → API Keys) |
 | `FIREBASE_SERVICE_ACCOUNT` | Firebase service-account JSON (Project settings → Service accounts → Generate new private key) |
 
 Without them the site works, but email sign-ups stop at "Email verification isn't set up yet" (Google still works).
 
-### Resend (sending from noreply@experimentai.dev)
+### Email
 
-Add `experimentai.dev` as a domain in Resend and create its DNS records in Vercel (DKIM `resend._domainkey`,
-plus the `send` subdomain's MX and SPF TXT). A DMARC record (`_dmarc`, `v=DMARC1; p=none;`) helps deliverability.
+- **Inboxes** (contact@ and others) are **Zoho Mail**: MX `mx/mx2/mx3.zoho.com`, DKIM `zmail._domainkey`. Leave them alone.
+- **Sending** the verification code (noreply@experimentai.dev) goes through **Brevo**. Authenticate `experimentai.dev`
+  in Brevo and add its DNS records in Vercel. A domain has **one** SPF record, so merge, don't add:
+  `v=spf1 include:zohomail.com include:spf.brevo.com ~all`. Add DMARC: `_dmarc` TXT `v=DMARC1; p=none;`.
+- In Brevo, turn off open and click tracking for transactional email; tracked links look spammy in a code email.
 
 ### Firebase
 
@@ -75,7 +78,6 @@ See who joined in **Firestore → Data → waitlist** (or **Authentication → U
 
 - Gmail's code features ("Copy code" and similar) are Gmail's own detection. The email gives it every signal
   (code in the subject, first line and set apart in the body, authenticated sender), but Google decides when to show them.
-- `contact@experimentai.dev` needs an inbox or forwarding (e.g. ImprovMX) to actually receive mail.
 - AI logos come from `@lobehub/icons` (MIT). Check each company's brand guidelines before launch.
 - The "Meta Muse" chip uses Meta's logo. Swap `public/assets/ai/meta-color.svg` for the official Muse mark if you have it.
 - Comparison-table, About, pricing-feature and FAQ copy are placeholders. Make sure every claim matches the product.
