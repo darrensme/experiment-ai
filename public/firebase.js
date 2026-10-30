@@ -5,9 +5,13 @@ import { getAnalytics, isSupported, setConsent } from 'https://www.gstatic.com/f
 import { getAuth } from 'https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js';
 import { getFirestore } from 'https://www.gstatic.com/firebasejs/13.0.0/firebase-firestore.js';
 
+// On the live site, Google sign-in runs through experimentai.dev/__/auth (vercel.json proxies it to Firebase),
+// so Google's account chooser says "continue to experimentai.dev". Elsewhere (localhost, previews) use Firebase's own domain.
+const LIVE = /(^|\.)experimentai\.dev$/.test(location.hostname);
+
 const firebaseConfig = {
   apiKey: 'AIzaSyDoU9pR0JMc_kmipBBv8Q25_tgAa5UnBxE',
-  authDomain: 'experiment-labs-ai.firebaseapp.com',
+  authDomain: LIVE ? 'experimentai.dev' : 'experiment-labs-ai.firebaseapp.com',
   projectId: 'experiment-labs-ai',
   storageBucket: 'experiment-labs-ai.firebasestorage.app',
   messagingSenderId: '358435225551',
