@@ -26,6 +26,10 @@
   <clipPath id="liquid"><path d="M90 246 Q130 234 170 246 T250 246 T330 246 T410 246 L430 460 L80 460 Z"/></clipPath>
 </defs>
 <g transform="translate(256 272) scale(0.9) translate(-256 -297)">
+  <g class="outline" fill="#d6e4f1" stroke="#3d6699" stroke-width="22" stroke-linejoin="round"><rect x="222" y="148" width="68" height="44" rx="13"/>
+    <rect x="220" y="196" width="72" height="52" rx="10"/>
+    <rect x="204" y="184" width="104" height="24" rx="12"/>
+    <path d="M220 231.2 L118 407.9 Q96 446 140 446 L372 446 Q416 446 394 407.9 L292 231.2 Z"/></g>
   <g fill="#d6e4f1">
     <rect x="222" y="148" width="68" height="44" rx="13"/>
     <rect x="220" y="196" width="72" height="52" rx="10"/>

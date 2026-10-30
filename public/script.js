@@ -466,18 +466,43 @@ import {
     open();
   }
 
-  /* ── Pricing: Max 5× / 10× switch ── */
+  /* ── Pricing: Max 5× / 10× switch — the price counts to its new value, the icon and note crossfade ── */
   const maxCard = $('[data-max]');
   if (maxCard) {
     const toggle = $('.max-toggle', maxCard);
+    const icon = $('img[data-5x]', maxCard);
+    const price = $('.price b', maxCard);
+    const note = $('.plan-note', maxCard);
+    [icon.dataset['5x'], icon.dataset['10x']].forEach((src) => { new Image().src = src; }); // no flash on first switch
+    const shown = { n: parseInt(price.textContent.replace(/\D/g, ''), 10) };
+    const swap = (el, apply) => {
+      gsap.killTweensOf(el);
+      gsap.timeline()
+        .to(el, { autoAlpha: 0, y: -6, scale: el === icon ? 0.9 : 1, duration: 0.16, ease: 'power2.in' })
+        .add(apply)
+        .fromTo(el, { y: 6 }, { autoAlpha: 1, y: 0, scale: 1, duration: 0.4, ease: 'power3.out' });
+    };
     $$('button', toggle).forEach((b) => b.addEventListener('click', () => {
       const tier = b.dataset.tier;
+      if (toggle.dataset.tier === tier) return;
       toggle.dataset.tier = tier;
       $$('button', toggle).forEach((x) => x.setAttribute('aria-checked', String(x === b)));
-      $$(`[data-${tier}]`, maxCard).forEach((el) => {
-        if (el.tagName === 'IMG') el.src = el.dataset[tier];
-        else el.textContent = el.dataset[tier];
+      const target = parseInt(price.dataset[tier].replace(/\D/g, ''), 10);
+      if (reduced) {
+        icon.src = icon.dataset[tier];
+        note.textContent = note.dataset[tier];
+        price.textContent = price.dataset[tier];
+        shown.n = target;
+        return;
+      }
+      swap(icon, () => { icon.src = icon.dataset[tier]; });
+      swap(note, () => { note.textContent = note.dataset[tier]; });
+      gsap.killTweensOf(shown);
+      gsap.to(shown, {
+        n: target, duration: 0.7, ease: 'power3.out',
+        onUpdate: () => { price.textContent = `$${Math.round(shown.n)}`; },
       });
+      gsap.fromTo(price, { scale: 1.06 }, { scale: 1, duration: 0.5, ease: 'power3.out', transformOrigin: 'left bottom', overwrite: 'auto' });
     }));
   }
 

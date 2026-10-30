@@ -27,6 +27,7 @@
   <clipPath id="full"><path d="M220 196 L292 196 L292 231.2 L394 407.9 Q416 446 372 446 L140 446 Q96 446 118 407.9 L220 231.2 Z"/></clipPath>
 </defs>
 <g transform="translate(256 286) scale(0.84) translate(-256 -297)">
+  <g class="outline" fill="#d6e4f1" stroke="#3d6699" stroke-width="22" stroke-linejoin="round"><rect x="220" y="196" width="72" height="52" rx="10"/><path d="M220 231.2 L118 407.9 Q96 446 140 446 L372 446 Q416 446 394 407.9 L292 231.2 Z"/><rect x="204" y="184" width="104" height="24" rx="12"/><rect x="268" y="40" width="68" height="44" rx="13" transform="rotate(24 302 62)"/></g>
   <g fill="#d6e4f1"><rect x="220" y="196" width="72" height="52" rx="10"/><path d="M220 231.2 L118 407.9 Q96 446 140 446 L372 446 Q416 446 394 407.9 L292 231.2 Z"/></g>
   <rect x="80" y="190" width="360" height="270" fill="url(#liq)" clip-path="url(#full)"/>
   <rect x="204" y="184" width="104" height="24" rx="12" fill="#d6e4f1"/>
