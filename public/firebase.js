@@ -31,8 +31,8 @@ isSupported().then((ok) => ok && getAnalytics(app)).catch(() => {});
 /* Friendly text for the Firebase Auth errors people actually hit. */
 const AUTH_ERRORS = {
   'auth/account-exists-with-different-credential': 'That email already joined another way. Try the other sign-in option.',
-  'auth/invalid-credential': 'That email and password don’t match.',
-  'auth/wrong-password': 'That email and password don’t match.',
+  'auth/invalid-credential': 'That email is already on the list, but the password doesn’t match.',
+  'auth/wrong-password': 'That email is already on the list, but the password doesn’t match.',
   'auth/invalid-email': 'Enter a valid email.',
   'auth/weak-password': 'Password needs at least 8 characters.',
   'auth/unauthorized-domain': 'This site isn’t approved for sign-in yet (Firebase → Authentication → Settings → Authorized domains).',

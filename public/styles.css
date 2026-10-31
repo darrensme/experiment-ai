@@ -150,17 +150,6 @@ a { color: inherit; }
 .nav-links a { text-decoration: none; font-size: .95rem; color: var(--ink); opacity: .75; transition: opacity .2s; }
 .nav-links a:hover { opacity: 1; }
 .nav-cta { justify-self: end; white-space: nowrap; }
-/* Sign up + Log in in the nav; the sign-in box has a Sign up and a Log in mode */
-.nav-auth { justify-self: end; display: flex; align-items: center; gap: 8px; }
-.modal[data-mode="login"] .for-signup, .modal:not([data-mode="login"]) .for-login { display: none; }
-.link-inline { padding: 0; border: 0; background: none; cursor: pointer; font: inherit; font-weight: 600; color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
-body.joined [data-auth="login"] { display: none; }
-.toast {
-  position: fixed; top: 84px; left: 50%; z-index: 40; translate: -50% 0; padding: .8rem 1.2rem; border-radius: 999px;
-  font-size: .95rem; font-weight: 500; color: var(--ink); animation: toast-in .4s cubic-bezier(.2,.8,.2,1) both;
-}
-@keyframes toast-in { from { opacity: 0; transform: translateY(-10px); } }
-@media (max-width: 600px) { .nav-login { display: none; } }
 .studio { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: -.02em; }
 .studio img { width: 34px; height: 34px; }
 
