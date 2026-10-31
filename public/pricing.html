@@ -53,6 +53,11 @@
     <section class="page-hero">
       <h1>Simple <em class="serif gold">pricing</em></h1>
       <p class="lede">Every major AI in one subscription. Start free, and upgrade when you need more.</p>
+      <div class="billing" role="radiogroup" aria-label="Billing" data-billing="monthly">
+        <i></i>
+        <button type="button" role="radio" aria-checked="true" data-billing="monthly">Monthly</button>
+        <button type="button" role="radio" aria-checked="false" data-billing="yearly">Yearly <span class="save">2 months free</span></button>
+      </div>
     </section>
 
     <section class="inner">
@@ -62,6 +67,7 @@
         <h3>Free</h3>
         <p class="plan-tagline">A taste of what Experiment AI can do.</p>
         <p class="price"><b>$0</b><span>forever</span></p>
+        <p class="price-sub blank" aria-hidden="true">Billed monthly</p>
         <p class="plan-note">Limited usage</p>
         <ul>
           <li class="limited"><strong>Limited models:</strong> a selection of our AIs</li>
@@ -75,7 +81,8 @@
         <img class="plan-icon" src="/assets/plans/light.svg" alt="" />
         <h3>Light</h3>
         <p class="plan-tagline">For everyday questions and quick help.</p>
-        <p class="price"><b>$10</b><span>/ month</span></p>
+        <p class="price"><b data-monthly="10">$10</b><span>/ month</span></p>
+        <p class="price-sub">Billed monthly</p>
         <p class="plan-note">5× the usage of Free</p>
         <ul>
           <li><strong>All models:</strong> Grok, Claude, Gemini, ChatGPT &amp; Meta Muse</li>
@@ -91,7 +98,8 @@
         <img class="plan-icon" src="/assets/plans/pro.svg" alt="" />
         <h3>Pro</h3>
         <p class="plan-tagline">For people who use it all day.</p>
-        <p class="price"><b>$20</b><span>/ month</span></p>
+        <p class="price"><b data-monthly="20">$20</b><span>/ month</span></p>
+        <p class="price-sub">Billed monthly</p>
         <p class="plan-note">2× the usage of Light</p>
         <ul>
           <li>Everything in Light, with <strong>all models</strong></li>
@@ -110,7 +118,8 @@
           <button type="button" role="radio" aria-checked="true" data-tier="5x">Max 5×</button>
           <button type="button" role="radio" aria-checked="false" data-tier="10x">Max 10×</button>
         </div>
-        <p class="price"><b data-5x="$100" data-10x="$200">$100</b><span>/ month</span></p>
+        <p class="price"><b data-monthly="100" data-5x="100" data-10x="200">$100</b><span>/ month</span></p>
+        <p class="price-sub">Billed monthly</p>
         <p class="plan-note" data-5x="5× the usage of Pro" data-10x="10× the usage of Pro">5× the usage of Pro</p>
         <ul>
           <li>Everything in Pro, with <strong>all models</strong></li>
@@ -138,6 +147,10 @@
       <details class="glass reveal">
         <summary>How much more do I get on each plan?</summary>
         <p>Light gives you 5× the usage of Free. Pro doubles Light. Max 5× gives you five times Pro, and Max 10× gives you ten times Pro.</p>
+      </details>
+      <details class="glass reveal">
+        <summary>Is there a yearly plan?</summary>
+        <p>Yes. Pay yearly and get 12 months for the price of 10, so two months are free. Light is $100 a year, Pro $200, Max 5× $1,000 and Max 10× $2,000.</p>
       </details>
       <details class="glass reveal">
         <summary>Can I switch plans later?</summary>

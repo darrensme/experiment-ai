@@ -466,15 +466,21 @@ import {
     open();
   }
 
-  /* ── Pricing: Max 5× / 10× switch — the price counts to its new value, the icon and note crossfade ── */
+  /* ── Pricing: Monthly / Yearly (yearly = 12 months for the price of 10) and Max 5× / 10×.
+        Prices count to their new value; the Max icon, notes and "/ month" text crossfade. ── */
   const maxCard = $('[data-max]');
-  if (maxCard) {
+  const billing = $('.billing');
+  if (maxCard && billing) {
     const toggle = $('.max-toggle', maxCard);
     const icon = $('img[data-5x]', maxCard);
-    const price = $('.price b', maxCard);
     const note = $('.plan-note', maxCard);
     [icon.dataset['5x'], icon.dataset['10x']].forEach((src) => { new Image().src = src; }); // no flash on first switch
-    const shown = { n: parseInt(price.textContent.replace(/\D/g, ''), 10) };
+    const state = { billing: 'monthly', tier: '5x' };
+    const money = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
+    const prices = $$('.price b[data-monthly]').map((b) => ({
+      b, unit: b.nextElementSibling, sub: $('.price-sub', b.closest('.plan')),
+      max: b.closest('[data-max]') === maxCard, shown: { n: Number(b.dataset.monthly) },
+    }));
     const swap = (el, apply) => {
       gsap.killTweensOf(el);
       gsap.timeline()
@@ -482,27 +488,47 @@ import {
         .add(apply)
         .fromTo(el, { y: 6 }, { autoAlpha: 1, y: 0, scale: 1, duration: 0.4, ease: 'power3.out' });
     };
+    const render = () => prices.forEach((p) => {
+      const monthly = Number(p.max ? p.b.dataset[state.tier] : p.b.dataset.monthly);
+      const yearly = state.billing === 'yearly';
+      const target = yearly ? monthly * 10 : monthly;
+      const unit = yearly ? '/ year' : '/ month';
+      const sub = yearly ? `$${(monthly * 10 / 12).toFixed(2)} a month, billed yearly` : 'Billed monthly';
+      if (target === p.shown.n) return;
+      if (reduced) {
+        p.b.textContent = money(target);
+        p.unit.textContent = unit;
+        p.sub.textContent = sub;
+        p.shown.n = target;
+        return;
+      }
+      gsap.killTweensOf(p.shown);
+      gsap.to(p.shown, { n: target, duration: 0.7, ease: 'power3.out', onUpdate: () => { p.b.textContent = money(p.shown.n); } });
+      gsap.fromTo(p.b, { scale: 1.06 }, { scale: 1, duration: 0.5, ease: 'power3.out', transformOrigin: 'left bottom', overwrite: 'auto' });
+      if (p.unit.textContent !== unit) swap(p.unit, () => { p.unit.textContent = unit; });
+      if (p.sub.textContent !== sub) swap(p.sub, () => { p.sub.textContent = sub; });
+    });
+    const radio = (group, b) => $$('button', group).forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+
+    $$('button', billing).forEach((b) => b.addEventListener('click', () => {
+      if (state.billing === b.dataset.billing) return;
+      state.billing = billing.dataset.billing = b.dataset.billing;
+      radio(billing, b);
+      render();
+    }));
     $$('button', toggle).forEach((b) => b.addEventListener('click', () => {
       const tier = b.dataset.tier;
-      if (toggle.dataset.tier === tier) return;
-      toggle.dataset.tier = tier;
-      $$('button', toggle).forEach((x) => x.setAttribute('aria-checked', String(x === b)));
-      const target = parseInt(price.dataset[tier].replace(/\D/g, ''), 10);
+      if (state.tier === tier) return;
+      state.tier = toggle.dataset.tier = tier;
+      radio(toggle, b);
       if (reduced) {
         icon.src = icon.dataset[tier];
         note.textContent = note.dataset[tier];
-        price.textContent = price.dataset[tier];
-        shown.n = target;
-        return;
+      } else {
+        swap(icon, () => { icon.src = icon.dataset[tier]; });
+        swap(note, () => { note.textContent = note.dataset[tier]; });
       }
-      swap(icon, () => { icon.src = icon.dataset[tier]; });
-      swap(note, () => { note.textContent = note.dataset[tier]; });
-      gsap.killTweensOf(shown);
-      gsap.to(shown, {
-        n: target, duration: 0.7, ease: 'power3.out',
-        onUpdate: () => { price.textContent = `$${Math.round(shown.n)}`; },
-      });
-      gsap.fromTo(price, { scale: 1.06 }, { scale: 1, duration: 0.5, ease: 'power3.out', transformOrigin: 'left bottom', overwrite: 'auto' });
+      render();
     }));
   }
 
