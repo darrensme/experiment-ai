@@ -46,7 +46,10 @@
       <a href="/contact">Contact</a>
       <a href="/pricing">Pricing</a>
     </nav>
-    <button class="btn btn-dark btn-sm nav-cta" data-auth>Join waitlist</button>
+    <div class="nav-auth">
+      <button class="btn btn-ghost btn-sm nav-login" data-auth="login">Log in</button>
+      <button class="btn btn-dark btn-sm nav-cta" data-auth="signup">Sign up</button>
+    </div>
   </header>
 
   <main>
@@ -164,26 +167,27 @@
       <img src="assets/potion-orb-pfp-sky-bottle.png" alt="" class="modal-logo" />
 
       <div class="step step-join">
-        <h3 id="auth-title">Join the <em class="serif gold">waitlist</em></h3>
-        <p class="modal-sub">Create your account now and you’ll be first in line when Experiment AI launches. We’ll only email you about the launch.</p>
+        <h3 id="auth-title"><span class="for-signup">Create your <em class="serif gold">account</em></span><span class="for-login">Welcome <em class="serif gold">back</em></span></h3>
+        <p class="modal-sub"><span class="for-signup">Sign up to start using Experiment AI. It only takes a moment.</span><span class="for-login">Log in to pick up where you left off.</span></p>
         <button type="button" class="btn btn-lg full btn-google" data-provider="google">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.46a5.52 5.52 0 0 1-2.4 3.62v3h3.88c2.27-2.09 3.58-5.17 3.58-8.81z"/><path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.94-2.91l-3.88-3.01c-1.07.72-2.45 1.15-4.06 1.15-3.12 0-5.77-2.11-6.71-4.95H1.28v3.11A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.29 14.28A7.2 7.2 0 0 1 4.91 12c0-.79.14-1.56.38-2.28V6.61H1.28A12 12 0 0 0 0 12c0 1.94.46 3.77 1.28 5.39l4.01-3.11z"/><path fill="#EA4335" d="M12 4.77c1.76 0 3.34.61 4.59 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.28 6.61l4.01 3.11C6.23 6.88 8.88 4.77 12 4.77z"/></svg>
           Continue with Google
         </button>
         <div class="or"><span>or</span></div>
         <form class="email-form" novalidate>
-          <label class="field"><span>Name</span><input type="text" name="name" autocomplete="name" placeholder="Ada Lovelace" maxlength="60" /></label>
+          <label class="field for-signup"><span>Name</span><input type="text" name="name" autocomplete="name" placeholder="Ada Lovelace" maxlength="60" /></label>
           <label class="field"><span>Email</span><input type="email" name="email" autocomplete="email" placeholder="you@example.com" required /></label>
           <label class="field"><span>Password</span><input type="password" name="password" autocomplete="new-password" placeholder="At least 8 characters" required minlength="8" /></label>
-          <button class="btn btn-dark btn-lg full" type="submit">Join the waitlist</button>
+          <button class="btn btn-dark btn-lg full" type="submit"><span class="for-signup">Sign up</span><span class="for-login">Log in</span></button>
         </form>
-        <p class="fine">Already joined? Enter the same email and password to check your spot.</p>
-        <p class="fine">By joining, you agree to our <a href="/tos">Terms</a> and <a href="/policy">Privacy Policy</a>.</p>
+        <p class="fine for-signup">Already have an account? <button type="button" class="link-inline" data-mode="login">Log in</button></p>
+        <p class="fine for-login">New to Experiment AI? <button type="button" class="link-inline" data-mode="signup">Sign up</button></p>
+        <p class="fine">By continuing, you agree to our <a href="/tos">Terms</a> and <a href="/policy">Privacy Policy</a>.</p>
       </div>
 
       <div class="step step-verify">
         <h3>Check your <em class="serif gold">email</em></h3>
-        <p class="modal-sub">We sent a 6-digit code to <strong class="verify-email"></strong>. Enter it to confirm your email and save your spot.</p>
+        <p class="modal-sub">We sent a 6-digit code to <strong class="verify-email"></strong>. Enter it to confirm your email.</p>
         <form class="verify-form" novalidate>
           <input class="code-input" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" aria-label="6-digit verification code" />
           <button class="btn btn-dark btn-lg full" type="submit">Verify email</button>

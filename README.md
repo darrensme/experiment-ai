@@ -8,13 +8,13 @@ The website for **Experiment AI** by **Experiment Labs**, live at https://experi
 | About us (Experiment Labs) | `/aboutus` |
 | Contact (contact@experimentai.dev) | `/contact` |
 | Pricing (Free, Light, Pro, Max 5× / 10×) | `/pricing` |
-| Your place in line (signed-in only, noindex) | `/home` |
+| The app: greeting, message bar, sidebar with chats + profile (signed-in only, noindex; AI not connected yet) | `/home` |
 
 People join the **waitlist** with **Google** or **email + password** (Firebase Authentication). Email sign-ups
 confirm a **6-digit code** emailed from `noreply@experimentai.dev`; Google accounts are already verified. Each
 verified person's spot is saved in **Firestore** at `waitlist/{uid}` with their **place in line** (`position`),
-numbered by the `meta/waitlist` counter. Anyone already in line who opens `/` is sent to `/home`, which shows
-their number and that we'll email them at early access.
+numbered by the `meta/waitlist` counter. Anyone signed in who opens `/` is sent to `/home`, the app
+(`home.html` + `app.css` + `app.js`).
 
 **No cookies:** Analytics runs with storage consent denied (cookieless pings), sign-in lives in browser storage,
 and the "no cookies" note remembers its dismissal in `localStorage`. Keep it that way. The note promises it.
@@ -38,6 +38,7 @@ public/              static site (Vercel serves it with clean URLs)
 api/                 Vercel functions (Node)
   send-code.js       POST: emails a 6-digit code (1/min, 5/hour, expires in 10 min)
   verify-code.js     POST {code}: checks it (5 tries) and marks the Firebase account emailVerified
+  delete-account.js  POST: deletes the signed-in account, its waitlist entry and email code (Settings → Delete)
   _email.js          the code email (HTML + text), sent with Resend
   _shared.js         Firebase Admin, ID-token check, code hashing
 firestore.rules      publish in the Firebase console

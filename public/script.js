@@ -183,6 +183,16 @@ import {
   const msg = $('.form-msg', modal);
   const joinButtons = $$('[data-auth]');
   joinButtons.forEach((b) => { b.dataset.label = b.innerHTML; });
+  let planButtons = null; // set by the pricing section below: Current / Change / Upgrade on the plan cards
+  const showToast = (text) => {
+    $('.toast')?.remove();
+    const toast = document.createElement('div');
+    toast.className = 'toast glass';
+    toast.setAttribute('role', 'status');
+    toast.textContent = text;
+    document.body.append(toast);
+    setTimeout(() => toast.remove(), 6000);
+  };
   let lastFocus = null;
 
   // Google already verifies its emails; email + password accounts verify with our code.
@@ -193,10 +203,16 @@ import {
     msg.classList.toggle('err', isErr);
   };
   const showStep = (step) => { modal.dataset.step = step; };
-
-  const open = () => {
-    lastFocus = document.activeElement;
+  // Sign up or Log in: one box, different title, fields and button (.for-signup / .for-login in the markup).
+  const setMode = (mode) => {
+    modal.dataset.mode = mode;
+    $('input[name="password"]', modal).autocomplete = mode === 'login' ? 'current-password' : 'new-password';
     say('');
+  };
+
+  const open = (mode = 'signup') => {
+    lastFocus = document.activeElement;
+    setMode(mode);
     const user = auth.currentUser;
     if (user && isVerified(user)) {
       fillDone(user);
@@ -226,9 +242,11 @@ import {
   function markJoined(joined) {
     document.body.classList.toggle('joined', joined);
     joinButtons.forEach((b) => {
+      if (b.closest('.plan')) return; // the pricing cards: planButtons
       b.innerHTML = !joined ? b.dataset.label
-        : b.classList.contains('btn-sm') ? '✓ On the waitlist' : 'You’re on the list ✓';
+        : b.dataset.auth === 'login' ? b.dataset.label : 'Open app <span class="arrow">→</span>'; // Log in buttons hide when signed in
     });
+    planButtons?.();
   }
 
   // Firestore is only needed at sign-up, so it loads on demand. One save per person, however many callers.
@@ -263,7 +281,7 @@ import {
   async function finish(cred) {
     await saveSpot(cred.user, cred.providerId);
     if (location.pathname !== '/home') {
-      say('✦ You’re on the list. Taking you to your spot…');
+      say('✦ You’re in. Opening Experiment AI…');
       location.href = '/home';
       return;
     }
@@ -325,7 +343,7 @@ import {
     }
   });
 
-  // One form for both: new email → create the account; existing email → log in to see your spot.
+  // Sign up creates the account (an email that already has one just logs in); Log in only logs in.
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const name = form.name.value.trim();
@@ -335,15 +353,19 @@ import {
     if (password.length < 8) return say('Password needs at least 8 characters.', true);
 
     lock(true);
-    say('Saving your spot…');
+    const login = modal.dataset.mode === 'login';
+    say(login ? 'Logging you in…' : 'Creating your account…');
     try {
       let cred;
-      try {
-        cred = await createUserWithEmailAndPassword(auth, email, password);
-        if (name) await updateProfile(cred.user, { displayName: name.slice(0, 60) });
-      } catch (err) {
-        if (err.code !== 'auth/email-already-in-use') throw err;
-        cred = await signInWithEmailAndPassword(auth, email, password);
+      if (login) cred = await signInWithEmailAndPassword(auth, email, password);
+      else {
+        try {
+          cred = await createUserWithEmailAndPassword(auth, email, password);
+          if (name) await updateProfile(cred.user, { displayName: name.slice(0, 60) });
+        } catch (err) {
+          if (err.code !== 'auth/email-already-in-use') throw err;
+          cred = await signInWithEmailAndPassword(auth, email, password);
+        }
       }
       form.reset();
       if (isVerified(cred.user)) await finish({ user: cred.user, providerId: 'password' });
@@ -395,11 +417,21 @@ import {
   function fail(err) {
     console.error(err);
     if (err.code?.startsWith('auth/')) return say(authMessage(err), true);
-    if (err.code) return say('We couldn’t save your spot. Please try again.', true); // Firestore
+    if (err.code) return say('We couldn’t finish signing you in. Please try again.', true); // Firestore
     say(err.message || 'Something went wrong. Please try again.', true); // our API's own message
   }
 
-  joinButtons.forEach((b) => b.addEventListener('click', open));
+  // Already signed in? The buttons open the app instead.
+  joinButtons.forEach((b) => b.addEventListener('click', () => {
+    const joined = document.body.classList.contains('joined');
+    if (joined && b.closest('.plan')) return showToast('Plan changes open at launch.');
+    if (joined) location.href = '/home';
+    else open(b.dataset.auth === 'login' ? 'login' : 'signup');
+  }));
+  $$('[data-mode]', modal).forEach((b) => b.addEventListener('click', () => {
+    setMode(b.dataset.mode);
+    $('input[name="email"]', modal).focus();
+  }));
   $$('[data-close]', modal).forEach((b) => b.addEventListener('click', close));
   addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden) close(); });
 
@@ -461,9 +493,14 @@ import {
   }));
 
   const params = new URLSearchParams(location.search);
-  if (params.has('join') || params.has('auth')) {
+  if (params.has('join') || params.has('auth') || params.has('login')) {
     history.replaceState(null, '', location.pathname);
-    open();
+    open(params.has('login') ? 'login' : 'signup');
+  }
+  // After deleting an account in the app
+  if (params.has('deleted')) {
+    history.replaceState(null, '', location.pathname);
+    showToast('Your account has been deleted.');
   }
 
   /* ── Pricing: Monthly / Yearly (yearly = 12 months for the price of 10) and Max 5× / 10×.
@@ -529,7 +566,34 @@ import {
         swap(note, () => { note.textContent = note.dataset[tier]; });
       }
       render();
+      planButtons?.();
     }));
+
+    // Signed in: your plan's card says Current, cheaper plans Change, pricier ones Upgrade. Plans aren't connected
+    // yet, so everyone is on Free; on localhost, ?plan=light|pro|max-5x|max-10x previews another plan.
+    const PLAN_ORDER = ['free', 'light', 'pro', 'max-5x', 'max-10x'];
+    const preview = location.hostname === 'localhost' && new URLSearchParams(location.search).get('plan');
+    const myPlan = PLAN_ORDER.includes(preview) ? preview : 'free';
+    const cardPlan = (card) => (card === maxCard ? `max-${state.tier}` : $('.plan-icon', card).getAttribute('src').match(/(\w+)\.svg$/)[1]);
+    planButtons = () => {
+      const signedIn = document.body.classList.contains('joined');
+      $$('.plan').forEach((card) => {
+        const b = $('[data-auth]', card);
+        b.dataset.cls ??= b.className;
+        if (!signedIn) {
+          b.className = b.dataset.cls;
+          b.innerHTML = b.dataset.label;
+          b.disabled = false;
+          return;
+        }
+        const diff = PLAN_ORDER.indexOf(cardPlan(card)) - PLAN_ORDER.indexOf(myPlan);
+        b.disabled = diff === 0;
+        b.textContent = diff === 0 ? 'Current' : diff > 0 ? 'Upgrade' : 'Change';
+        b.className = `btn btn-lg full ${diff > 0 ? 'btn-dark' : 'btn-ghost'}`;
+      });
+    };
+    if (myPlan === 'max-10x') $('[data-tier="10x"]', toggle).click(); // show their Max level
+    planButtons();
   }
 
   /* ── Contact: copy the email address ── */
