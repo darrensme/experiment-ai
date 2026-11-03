@@ -220,6 +220,15 @@
 .plans-slot .plan { animation: rise .7s cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(var(--i, 0) * 70ms + 60ms); }
 .plans-slot .price b { transform-origin: left bottom; }
 @media (prefers-reduced-motion: reduce) { .plans-slot .plan { animation: none; } }
+/* Stripe's embedded checkout, inside the plans pop-up; the form is Stripe's own frame (white, as Stripe draws it) */
+.checkout-wrap { display: flex; flex-direction: column; gap: 12px; }
+.checkout-wrap[hidden], .plans-slot[hidden] { display: none; }
+.checkout-back { align-self: flex-start; }
+.checkout-mount { min-height: 420px; border-radius: 18px; overflow: hidden; background: #fff; }
+.manage-billing-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin-top: 14px; }
+.manage-billing-row[hidden] { display: none; }
+.manage-billing-row .sheet-note { margin: 0; }
+.billing-msg:empty { display: none; }
 .plans-msg { min-height: 1.3em; margin: 14px 0 0; text-align: center; font-size: .9rem; font-weight: 500; color: var(--blue); }
 
 /* Usage bars: today and this week, as a share of the plan's budget */

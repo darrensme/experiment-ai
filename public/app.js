@@ -741,15 +741,23 @@ const PLAN_USAGE = {
   'max-5x': '5× the usage of Pro', 'max-10x': '10× the usage of Pro',
 };
 const planKey = PLANS[rank];
-// Monthly or yearly; yearly is 12 months for the price of 10. On localhost, ?billing=yearly previews yearly.
+// Monthly or yearly; yearly is 12 months for the price of 10. The real one comes from /api/usage (Stripe);
+// on localhost, ?billing=yearly previews yearly.
 const PLAN_PRICE = { light: 10, pro: 20, 'max-5x': 100, 'max-10x': 200 };
-const billing = location.hostname === 'localhost' && new URLSearchParams(location.search).get('billing') === 'yearly' ? 'yearly' : 'monthly';
+let billing = location.hostname === 'localhost' && new URLSearchParams(location.search).get('billing') === 'yearly' ? 'yearly' : 'monthly';
+let billingInfo = null; // { billing, status, periodEnd, cancelAtPeriodEnd, canManage } from the server
 function billingText() {
   const monthly = PLAN_PRICE[planKey];
   if (!monthly) return ''; // Free has nothing to bill
-  return billing === 'yearly'
+  let text = billing === 'yearly'
     ? `Yearly · $${(monthly * 10).toLocaleString('en-US')} a year`
     : `Monthly · $${monthly} a month`;
+  if (billingInfo?.status === 'past_due') return `${text} · payment failed, update your card`;
+  if (billingInfo?.periodEnd) {
+    const date = new Date(billingInfo.periodEnd * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    text += ` · ${billingInfo.cancelAtPeriodEnd ? 'ends' : 'renews'} ${date}`;
+  }
+  return text;
 }
 
 // Usage budgets, shown only as percentages: a week is the plan's monthly price ÷ 4 of AI cost, and a day is that ÷ 7
@@ -769,6 +777,11 @@ async function loadUsage(user) {
     if (!spentPreview) Object.assign(spent, data.spent);
     Object.assign(budget, data.budgets);
     renderUsage();
+    if (!planPreview) {
+      billingInfo = data.billing;
+      if (billingInfo?.billing) billing = billingInfo.billing;
+      fillSheets(user);
+    }
     if (!planPreview && PLANS.includes(data.plan) && data.plan !== plan) {
       try { localStorage.setItem(PLAN_KEY, data.plan); } catch { return; }
       if (sessionStorage.getItem(PLAN_KEY) !== data.plan) { // reload once, never in a loop
@@ -777,6 +790,88 @@ async function loadUsage(user) {
       }
     }
   } catch {} // the bars just stay as they were
+}
+
+// POST to one of our functions as the signed-in person; throws the server's message on failure.
+async function apiPost(path, body = {}) {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${await auth.currentUser.getIdToken()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Something went wrong. Please try again.');
+  return data;
+}
+
+// After paying or changing plan: remember the new plan and open the app again with it (and a welcome line).
+function switchToPlan(newPlan) {
+  try {
+    localStorage.setItem(PLAN_KEY, newPlan);
+    sessionStorage.removeItem(PLAN_KEY);
+    sessionStorage.setItem('experimentai.welcome', newPlan);
+  } catch {}
+  location.replace('/home');
+}
+
+/* ── Payments: Stripe's embedded checkout, opened in the plans pop-up. Stripe.js is loaded only then, with advanced
+      fraud signals off, so it doesn't set cookies or track on our pages (the site promises no cookies). The card form
+      itself runs in Stripe's own frame on Stripe's domain. ── */
+let stripeJs = null;
+const loadStripeJs = () => (stripeJs ??= new Promise((resolve, reject) => {
+  const s = document.createElement('script');
+  s.src = 'https://js.stripe.com/endive/stripe.js?advancedFraudSignals=false';
+  s.onload = () => resolve(window.Stripe);
+  s.onerror = () => {
+    stripeJs = null;
+    s.remove();
+    reject(new Error('Couldn’t load the payment form. Check your connection and try again.'));
+  };
+  document.head.append(s);
+}));
+let embeddedCheckout = null;
+function closeCheckout() {
+  embeddedCheckout?.destroy();
+  embeddedCheckout = null;
+  $('.checkout-wrap').hidden = true;
+  $('.plans-slot').hidden = false;
+}
+async function openCheckout(publishableKey, clientSecret) {
+  const Stripe = await loadStripeJs();
+  closeCheckout(); // Stripe allows one embedded checkout at a time
+  embeddedCheckout = await Stripe(publishableKey).createEmbeddedCheckoutPage({ fetchClientSecret: async () => clientSecret });
+  $('.plans-slot').hidden = true;
+  $('.checkout-wrap').hidden = false;
+  embeddedCheckout.mount($('.checkout-mount'));
+  $('.checkout-back').focus();
+}
+$('.checkout-back').addEventListener('click', closeCheckout);
+
+// Stripe's billing page (cancel, card, invoices); it's a separate page on Stripe's site, so no cookies here either.
+async function openBillingPortal(msg) {
+  msg.textContent = 'Opening billing…';
+  try {
+    const { url } = await apiPost('/api/billing-portal');
+    location.href = url;
+  } catch (err) {
+    msg.textContent = err.message;
+  }
+}
+$('[data-manage-billing]').addEventListener('click', () => openBillingPortal($('.billing-msg')));
+
+// Back from Stripe at /home?checkout=cs_…: turn the plan on now rather than waiting for the webhook.
+const returningFrom = new URLSearchParams(location.search).get('checkout');
+async function finishCheckout() {
+  history.replaceState(null, '', '/home');
+  try {
+    const data = await apiPost('/api/checkout-status', { sessionId: returningFrom });
+    if (data.status === 'complete' && data.plan && data.plan !== plan) return switchToPlan(data.plan);
+    note.textContent = data.status === 'complete'
+      ? `Welcome to ${PLAN_NAMES[data.plan] || 'your new plan'}!`
+      : 'The payment didn’t go through, so nothing was charged. You can try again from Upgrade.';
+  } catch (err) {
+    note.textContent = err.message;
+  }
 }
 function renderUsage() {
   for (const period of ['day', 'week']) {
@@ -807,11 +902,13 @@ function fillSheets(user) {
     el.parentElement.hidden = !billingText();
   });
   $('.yearly-tip').hidden = !PLAN_PRICE[planKey] || billing === 'yearly';
+  $('.manage-billing-row').hidden = !billingInfo?.canManage;
   // nothing to upgrade to from the top plan
   $$('[data-upgrade]').forEach((el) => { el.hidden = planKey === 'max-10x'; });
 }
 function setSheet(name) {
   if (openSheet) openSheet.hidden = true;
+  if (embeddedCheckout && name !== 'plans') closeCheckout();
   if (name === 'settings') ['name', 'email'].forEach((key) => setEditing(key, false, true));
   if (name === 'usage') {
     requestAnimationFrame(renderUsage); // bars fill in as the panel opens
@@ -925,11 +1022,38 @@ function wirePlans() {
     $$('.plan', plansSlot).forEach((card) => {
       const b = $('[data-auth]', card);
       const diff = PLANS.indexOf(cardPlan(card)) - PLANS.indexOf(planKey);
-      b.disabled = diff === 0;
-      b.textContent = diff === 0 ? 'Current' : diff > 0 ? 'Upgrade' : 'Change';
+      // same plan, other billing period: offer the switch (Free has no billing period)
+      const current = diff === 0 && (planKey === 'free' || state.billing === billing);
+      b.disabled = current || busy;
+      b.textContent = current ? 'Current' : diff > 0 ? 'Upgrade' : diff < 0 ? 'Change' : `Switch to ${state.billing}`;
       b.className = `btn btn-lg full ${diff > 0 ? 'btn-dark' : 'btn-ghost'}`;
     });
   };
+  // Picking a plan: paid → Stripe checkout in this pop-up (or an instant switch if you already pay);
+  // Free → Stripe's billing page, where cancelling happens.
+  let busy = false;
+  async function choose(card) {
+    const target = cardPlan(card);
+    plansMsg.textContent = '';
+    if (target === 'free') return openBillingPortal(plansMsg);
+    busy = true;
+    render(false);
+    plansMsg.textContent = 'One moment…';
+    try {
+      const data = await apiPost('/api/checkout', { plan: target, billing: state.billing });
+      if (data.changed) {
+        plansMsg.textContent = `You’re on ${PLAN_NAMES[data.plan]} now.`;
+        return switchToPlan(data.plan);
+      }
+      await openCheckout(data.publishableKey, data.clientSecret);
+      plansMsg.textContent = '';
+    } catch (err) {
+      plansMsg.textContent = err.message;
+    } finally {
+      busy = false;
+      render(false);
+    }
+  }
   $$('button', billingToggle).forEach((b) => b.addEventListener('click', () => {
     if (state.billing === b.dataset.billing) return;
     state.billing = b.dataset.billing;
@@ -940,9 +1064,7 @@ function wirePlans() {
     state.tier = b.dataset.tier;
     render();
   }));
-  $$('[data-auth]', plansSlot).forEach((b) => b.addEventListener('click', () => {
-    plansMsg.textContent = 'Payments aren’t connected yet. Plan changes open at launch.';
-  }));
+  $$('[data-auth]', plansSlot).forEach((b) => b.addEventListener('click', () => choose(b.closest('.plan'))));
   // cards rise in one after another each time the pop-up opens, and a soft glow follows the cursor (as on /pricing)
   $$('.plan', plansSlot).forEach((card, i) => {
     card.style.setProperty('--i', i);
@@ -1104,6 +1226,12 @@ onAuthStateChanged(auth, async (user) => {
   fillSheets(user);
   loadProjects(user.uid);
   renderChats();
+  try {
+    const welcome = sessionStorage.getItem('experimentai.welcome');
+    sessionStorage.removeItem('experimentai.welcome');
+    if (welcome === planKey) note.textContent = `Welcome to ${PLAN_NAMES[planKey]}! Your new models and limits are on.`;
+  } catch {}
+  if (returningFrom) await finishCheckout(); // may reload with the new plan
   loadUsage(user);
   app.classList.remove('auth-pending');
   if (!phone.matches) field.focus();

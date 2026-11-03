@@ -166,6 +166,11 @@
           <div><dt>Billing</dt><dd class="set-billing"></dd></div>
           <div><dt>Signed in with</dt><dd class="set-provider"></dd></div>
         </dl>
+        <div class="manage-billing-row" hidden>
+          <button type="button" class="btn btn-sm btn-ghost" data-manage-billing>Manage billing</button>
+          <span class="sheet-note">Cancel, change your card or see invoices (on Stripe).</span>
+        </div>
+        <p class="billing-msg sheet-note" aria-live="polite"></p>
         <div class="danger-zone">
           <div>
             <strong>Delete account</strong>
@@ -199,7 +204,7 @@
             <p class="usage-reset">Resets Monday</p>
           </div>
         </div>
-        <p class="sheet-note">Usage starts counting once Experiment AI is switched on.</p>
+        <p class="sheet-note">Days reset at midnight UTC, weeks on Monday.</p>
         <p class="sheet-note yearly-tip" hidden>Switch to yearly billing and get 2 months free.</p>
         <button type="button" class="btn btn-dark full sheet-upgrade" data-sheet="plans" data-upgrade>See plans</button>
       </div>
@@ -214,6 +219,12 @@
           <button type="button" class="sheet-x" data-sheet-close aria-label="Close"></button>
         </div>
         <div class="plans-slot"><p class="sheet-note">Loading plans…</p></div>
+        <!-- Stripe's embedded checkout goes here once a plan is picked -->
+        <div class="checkout-wrap" hidden>
+          <button type="button" class="link-inline checkout-back">← Back to plans</button>
+          <div class="checkout-mount"></div>
+          <p class="sheet-note">Payments are handled by Stripe. Your card details go straight to Stripe, never to us.</p>
+        </div>
         <p class="plans-msg" aria-live="polite"></p>
       </div>
     </div>

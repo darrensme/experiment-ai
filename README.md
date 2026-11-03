@@ -98,52 +98,46 @@ Days and weeks are UTC (weeks start Monday). The most a reply could cost is held
 can't overspend, and the reply's length is capped to what's left; the real cost replaces the hold when it finishes.
 Spending is in `usage/{uid}`; `api/usage.js` gives the app the plan and the numbers for the Usage bars.
 
-To give someone a plan by hand (until Stripe does it): Firestore → `plans` → document ID = their UID → field
-`plan` (string) = `light`, `pro`, `max-5x` or `max-10x`.
+Stripe sets plans (see Payments). To give someone a plan by hand without paying: Firestore → `plans` → document ID =
+their UID → field `plan` (string) = `light`, `pro`, `max-5x` or `max-10x` (a Stripe event for them later overwrites it).
 
 **secret.experimentai.dev** runs as a *Preview* deployment, so `VERCEL_AI_GATEWAY` and `FIREBASE_SERVICE_ACCOUNT` must
 be enabled for **Preview** too (Vercel → Settings → Environment Variables → edit → tick Preview), then redeploy.
 `.vercelignore` leaves out `send-code`/`verify-code` and `vercel.json` forwards them to experimentai.dev, which has the
 Production email key.
 
-## Adding Stripe (embedded checkout)
+## Payments (Stripe, embedded checkout)
 
-Not built yet. The plan system above is ready for it: Stripe only has to set `plans/{uid}`.
+Upgrade / See plans → pick a plan → Stripe's checkout opens **inside the plans pop-up** (embedded, `ui_mode:
+'embedded_page'`). Paying sends them back to `/home?checkout=…`, which turns the plan on at once.
 
-1. **Stripe Dashboard → Products:** add Light, Pro, Max 5×, Max 10×, each with a monthly price ($10/$20/$100/$200) and
-   a yearly one ($100/$200/$1,000/$2,000, i.e. 2 months free). Copy each price ID (`price_…`). Start in **test mode**.
-2. **Vercel env vars:** `STRIPE_SECRET_KEY` (`sk_…`), `STRIPE_WEBHOOK_SECRET` (`whsec_…`, step 5) and the price IDs.
-   The publishable key (`pk_…`) is public and can sit in the page. Then `npm install stripe`.
-3. **`api/checkout.js`** (POST, signed in): create an embedded Checkout Session and return its `client_secret`:
-   ```js
-   const session = await stripe.checkout.sessions.create({
-     ui_mode: 'embedded', mode: 'subscription',
-     line_items: [{ price: PRICES[plan][billing], quantity: 1 }],
-     customer_email: user.email, client_reference_id: user.uid,
-     subscription_data: { metadata: { uid: user.uid, plan } },
-     return_url: `${origin}/home?checkout={CHECKOUT_SESSION_ID}`,
-   });
-   res.json({ clientSecret: session.client_secret });
-   ```
-4. **In the plans pop-up** (`wirePlans` in `public/app.js`, where it now says "Payments aren't connected yet"): load
-   `https://js.stripe.com/v3/` (Stripe.js must load from Stripe; it can't be self-hosted), then
-   ```js
-   const stripe = Stripe('pk_test_…');
-   const checkout = await stripe.initEmbeddedCheckout({ fetchClientSecret: () => api('/api/checkout', { plan, billing }).then((d) => d.clientSecret) });
-   checkout.mount('#checkout'); // an empty <div id="checkout"> in the sheet; checkout.destroy() when it closes
-   ```
-5. **`api/stripe-webhook.js`:** read the *raw* request body (don't touch `req.body`), check it with
-   `stripe.webhooks.constructEvent(raw, req.headers['stripe-signature'], STRIPE_WEBHOOK_SECRET)`, then
-   on `checkout.session.completed` / `customer.subscription.updated` set `plans/{uid}` to the subscription's plan
-   (from its metadata; only while `status` is `active` or `trialing`), and on `customer.subscription.deleted` delete it.
-   Stripe Dashboard → Developers → Webhooks → add `https://<site>/api/stripe-webhook` with those three events.
-6. **Changing or cancelling:** easiest is Stripe's **Customer Portal** (`stripe.billingPortal.sessions.create`), linked from
-   Settings. Save the Stripe customer ID in `plans/{uid}` in step 5 so you can open it.
-7. Test with card `4242 4242 4242 4242`, then switch to live keys.
+| Function | What it does |
+|---|---|
+| `api/checkout.js` | New subscriber: makes an embedded Checkout Session. Already paying: switches the subscription to the new plan or billing period right away, prorated, and only if that payment goes through. |
+| `api/checkout-status.js` | Back from checkout: confirms the session belongs to this person and writes their plan. |
+| `api/stripe-webhook.js` | Renewals, changes, failed payments and cancellations keep `plans/{uid}` in step. |
+| `api/billing-portal.js` | "Manage billing" in Settings and the Free card: Stripe's billing page (cancel at period end, card, invoices). |
+| `api/_stripe.js` | Prices and syncing. Products and prices are **created in Stripe automatically** on first use (lookup keys `experimentai_<plan>_<monthly|yearly>`): $10/$20/$100/$200 a month, yearly = 10 months. |
 
-**Cookies:** Stripe.js sets its own fraud-prevention cookies, which breaks the site's "no cookies" promise. Either load
-Stripe.js only when someone opens checkout and update the note, or use Stripe's **hosted** Checkout (a redirect to
-checkout.stripe.com, `ui_mode` left out, `success_url` instead of `return_url`), which keeps cookies off this site.
+Deleting an account cancels its subscription in Stripe first. `/api/usage` re-checks a paid plan with Stripe every 6 hours,
+in case a webhook is missed.
+
+**No cookies.** Stripe.js loads only when checkout opens, from `js.stripe.com/endive/stripe.js?advancedFraudSignals=false`.
+Tested in Chrome: the default Stripe.js sets `__stripe_mid` and `__stripe_sid` on the site; with this flag it sets no cookies
+and no storage, and doesn't contact Stripe's fraud-signal hosts. The card form is Stripe's own frame on Stripe's domain
+(Stripe still runs its fraud checks there), and the billing portal is a page on billing.stripe.com.
+
+### Connect it
+
+1. **Keys:** Stripe Dashboard → Developers → API keys. Start with **test mode** (`sk_test_…`, `pk_test_…`).
+2. **Vercel env vars** (Preview for secret.experimentai.dev, Production for the main site), then redeploy:
+   `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`.
+3. **Webhook:** Stripe → Developers → Webhooks → Add endpoint `https://secret.experimentai.dev/api/stripe-webhook`, events
+   `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`,
+   `customer.subscription.deleted`. Optionally copy its signing secret (`whsec_…`) to `STRIPE_WEBHOOK_SECRET`; without it,
+   each event is re-fetched from Stripe by ID instead, so forged calls can't change anything.
+4. Try it with card `4242 4242 4242 4242`, any future date, any CVC. For live: switch both keys to live ones and add the
+   webhook again in live mode.
 
 ## Notes
 
