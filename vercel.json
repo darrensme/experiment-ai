@@ -2,7 +2,20 @@
   "outputDirectory": "public",
   "cleanUrls": true,
   "trailingSlash": false,
+  "functions": {
+    "api/chat.js": {
+      "maxDuration": 300
+    }
+  },
   "rewrites": [
+    {
+      "source": "/api/send-code",
+      "destination": "https://experimentai.dev/api/send-code"
+    },
+    {
+      "source": "/api/verify-code",
+      "destination": "https://experimentai.dev/api/verify-code"
+    },
     {
       "source": "/__/auth/:path*",
       "destination": "https://experiment-labs-ai.firebaseapp.com/__/auth/:path*"

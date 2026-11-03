@@ -1,0 +1,4 @@
+# secret.experimentai.dev runs as a Preview deployment, which doesn't get the Production-only email keys.
+# So these two are left out here and vercel.json forwards /api/send-code and /api/verify-code to experimentai.dev.
+api/send-code.js
+api/verify-code.js

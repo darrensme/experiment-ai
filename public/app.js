@@ -86,7 +86,7 @@ const setSearch = (open) => {
 searchBtn.addEventListener('click', () => setSearch(searchBox.hidden));
 searchInput.addEventListener('input', renderChats);
 
-/* ── Message bar. The AI isn't switched on yet, so sending only says so. ── */
+/* ── Message bar. Sending goes to /api/chat (see "Chat" below). ── */
 const composer = $('.composer');
 const field = $('textarea', composer);
 const sendBtn = $('.send', composer);
@@ -260,9 +260,14 @@ Object.entries(pickers).forEach(([kind, input]) => input.addEventListener('chang
 }));
 /* ── Modes, switched in the + menu: Research (deep research) and Memory (on by default on paid plans).
       Both apply to the current chat and reset on New chat. ── */
-// Plans aren't connected yet, so everyone is on Free. On localhost, ?plan=light|pro|max-5x|max-10x previews a plan.
+// Your plan comes from the server (/api/usage). The last one seen is kept in this browser so the page opens with it;
+// if the server says otherwise, the page reloads once with the new plan. On localhost, ?plan=light|pro|max-5x|max-10x
+// previews a plan. The server checks the plan on every message, so changing this in the browser unlocks nothing.
 const PLANS = ['free', 'light', 'pro', 'max-5x', 'max-10x'];
-const plan = (location.hostname === 'localhost' && new URLSearchParams(location.search).get('plan')) || 'free';
+const PLAN_KEY = 'experimentai.plan';
+const planPreview = location.hostname === 'localhost' && new URLSearchParams(location.search).get('plan');
+const cachedPlan = (() => { try { return localStorage.getItem(PLAN_KEY); } catch { return null; } })();
+const plan = planPreview || (PLANS.includes(cachedPlan) ? cachedPlan : 'free');
 const rank = PLANS.includes(plan) ? PLANS.indexOf(plan) : 2; // an unknown preview value counts as Pro
 const paid = rank >= 1; // Light and up: every model, Memory
 const hasProjects = rank >= 2; // Pro and up
@@ -580,15 +585,115 @@ field.addEventListener('keydown', (e) => {
     composer.requestSubmit();
   }
 });
+/* ── Chat: your message and the chat so far go to /api/chat, which streams the chosen model's reply back.
+      This chat lives in the page until New chat (saving chats comes later). Files, Research and Memory aren't sent yet. ── */
+const thread = $('.thread');
+const chat = []; // { role: 'user' | 'assistant', content }
+let streaming = null; // an AbortController while a reply is coming in
+
+function bubble(role, text) {
+  const el = document.createElement('div');
+  el.className = `msg msg-${role}`;
+  el.textContent = text;
+  thread.append(el);
+  return el;
+}
+const scrollDown = () => { thread.scrollTop = thread.scrollHeight; };
+const setChatting = (on) => {
+  app.classList.toggle('chatting', on);
+  thread.hidden = !on;
+};
+
+async function sendChat(text) {
+  const user = auth.currentUser;
+  if (!user || streaming) return;
+  chat.push({ role: 'user', content: text });
+  setChatting(true);
+  const mine = bubble('user', text);
+  const reply = bubble('assistant', '');
+  reply.classList.add('pending');
+  reply.setAttribute('aria-label', 'Thinking…');
+  scrollDown();
+  streaming = new AbortController();
+  composer.classList.add('busy');
+  let answer = '';
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      signal: streaming.signal,
+      headers: { Authorization: `Bearer ${await user.getIdToken()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: choice.model, effort: choice.effort.toLowerCase(), messages: chat }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Something went wrong. Please try again.');
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const event = JSON.parse(line);
+        if (event.type === 'text') {
+          answer += event.text;
+          reply.textContent = answer;
+          reply.classList.remove('pending');
+          reply.removeAttribute('aria-label');
+          scrollDown();
+        } else if (event.type === 'error') note.textContent = event.error;
+        else if (event.type === 'done') {
+          Object.assign(spent, event.spent);
+          Object.assign(budget, event.budgets);
+          renderUsage();
+        }
+      }
+    }
+  } catch (err) {
+    if (err.name !== 'AbortError') note.textContent = err.message;
+  } finally {
+    streaming = null;
+    composer.classList.remove('busy');
+    reply.classList.remove('pending');
+    if (answer) chat.push({ role: 'assistant', content: answer });
+    else {
+      // nothing came back: take the message out again and put it back in the box to retry
+      reply.remove();
+      mine.remove();
+      chat.pop();
+      if (!field.value.trim()) { field.value = text; fit(); }
+      if (!chat.length) setChatting(false);
+    }
+  }
+}
+
 composer.addEventListener('submit', (e) => {
   e.preventDefault();
   stopDictation();
-  if (!field.value.trim() && !attached.length) return;
-  note.textContent = 'Experiment AI isn’t switched on yet. Your chats will work here soon.';
+  if (streaming) return;
+  const text = field.value.trim();
+  if (!text) {
+    if (attached.length) note.textContent = 'Add a message. Files aren’t sent to the AI yet.';
+    return;
+  }
+  note.textContent = attached.length ? 'Files aren’t sent to the AI yet, only your message.' : '';
+  field.value = '';
+  clearFiles();
+  fit();
+  sendChat(text);
 });
 
 /* ── New chat: back to an empty message bar ── */
 $('[data-new-chat]').addEventListener('click', () => {
+  streaming?.abort();
+  chat.length = 0;
+  thread.replaceChildren();
+  setChatting(false);
   history.replaceState(null, '', '/home');
   setSearch(false);
   stopDictation();
@@ -648,12 +753,31 @@ function billingText() {
 }
 
 // Usage budgets, shown only as percentages: a week is the plan's monthly price ÷ 4 of AI cost, and a day is that ÷ 7
-// (Free counts as $3). Spending isn't tracked until the AI is on; on localhost, ?spent=day,week (in dollars) previews it.
+// (Free counts as $3). The server keeps the real numbers and enforces them (api/_ai.js); this only shows them.
+// On localhost, ?spent=day,week (in dollars) previews the bars.
 const BUDGET_BASE = { free: 3, light: 10, pro: 20, 'max-5x': 100, 'max-10x': 200 };
 const budget = { day: BUDGET_BASE[planKey] / 4 / 7, week: BUDGET_BASE[planKey] / 4 };
 const spent = { day: 0, week: 0 };
 const spentPreview = location.hostname === 'localhost' && new URLSearchParams(location.search).get('spent');
 if (spentPreview) [spent.day, spent.week] = spentPreview.split(',').map((n) => Number(n) || 0);
+
+async function loadUsage(user) {
+  try {
+    const res = await fetch('/api/usage', { method: 'POST', headers: { Authorization: `Bearer ${await user.getIdToken()}` } });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!spentPreview) Object.assign(spent, data.spent);
+    Object.assign(budget, data.budgets);
+    renderUsage();
+    if (!planPreview && PLANS.includes(data.plan) && data.plan !== plan) {
+      try { localStorage.setItem(PLAN_KEY, data.plan); } catch { return; }
+      if (sessionStorage.getItem(PLAN_KEY) !== data.plan) { // reload once, never in a loop
+        sessionStorage.setItem(PLAN_KEY, data.plan);
+        location.reload();
+      }
+    }
+  } catch {} // the bars just stay as they were
+}
 function renderUsage() {
   for (const period of ['day', 'week']) {
     const box = $(`.usage-bar[data-period="${period}"]`);
@@ -689,7 +813,10 @@ function fillSheets(user) {
 function setSheet(name) {
   if (openSheet) openSheet.hidden = true;
   if (name === 'settings') ['name', 'email'].forEach((key) => setEditing(key, false, true));
-  if (name === 'usage') requestAnimationFrame(renderUsage); // bars fill in as the panel opens
+  if (name === 'usage') {
+    requestAnimationFrame(renderUsage); // bars fill in as the panel opens
+    if (auth.currentUser) loadUsage(auth.currentUser);
+  }
   if (name === 'plans') {
     plansMsg.textContent = '';
     loadPlans();
@@ -923,6 +1050,7 @@ confirmDelete.addEventListener('click', async () => {
       localStorage.removeItem(`experimentai.projects.${user.uid}`);
       localStorage.removeItem(MODEL_KEY);
       localStorage.removeItem(HIDDEN_KEY);
+      localStorage.removeItem(PLAN_KEY);
     } catch {}
     await signOut(auth).catch(() => {});
     location.replace('/?deleted');
@@ -976,6 +1104,7 @@ onAuthStateChanged(auth, async (user) => {
   fillSheets(user);
   loadProjects(user.uid);
   renderChats();
+  loadUsage(user);
   app.classList.remove('auth-pending');
   if (!phone.matches) field.focus();
 });

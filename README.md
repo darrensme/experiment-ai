@@ -76,6 +76,75 @@ Without them the site works, but email sign-ups stop at "Email verification isn'
 
 See who joined in **Firestore → Data → waitlist** (or **Authentication → Users**).
 
+## The AI (app at /home)
+
+Messages go to `api/chat.js`, which calls the **Vercel AI Gateway** (`https://ai-gateway.vercel.sh/v1`, OpenAI-compatible)
+with the key in **`VERCEL_AI_GATEWAY`** and streams the reply back. Before each reply the server checks, in this order:
+
+1. signed in (Firebase ID token) and on the access list (`ACCESS` in `api/_ai.js`, plus `APP_ACCESS_HASHES`);
+2. the plan, from Firestore `plans/{uid}` `{ plan }` (no document = Free): Free gets Haiku 5.5, GPT-6 Luna and the two
+   Gemini Flash models at Low/Medium effort; Light and up get every model and High;
+3. the budget, in dollars of AI cost at the Gateway's list prices:
+
+| Plan | Price | Week (price ÷ 4) | Day (week ÷ 7) |
+|---|---|---|---|
+| Free | (counts as $3) | $0.75 | ≈ $0.107 |
+| Light | $10 | $2.50 | ≈ $0.357 |
+| Pro | $20 | $5 | ≈ $0.714 |
+| Max 5× | $100 | $25 | ≈ $3.57 |
+| Max 10× | $200 | $50 | ≈ $7.14 |
+
+Days and weeks are UTC (weeks start Monday). The most a reply could cost is held back first, so two chats at once
+can't overspend, and the reply's length is capped to what's left; the real cost replaces the hold when it finishes.
+Spending is in `usage/{uid}`; `api/usage.js` gives the app the plan and the numbers for the Usage bars.
+
+To give someone a plan by hand (until Stripe does it): Firestore → `plans` → document ID = their UID → field
+`plan` (string) = `light`, `pro`, `max-5x` or `max-10x`.
+
+**secret.experimentai.dev** runs as a *Preview* deployment, so `VERCEL_AI_GATEWAY` and `FIREBASE_SERVICE_ACCOUNT` must
+be enabled for **Preview** too (Vercel → Settings → Environment Variables → edit → tick Preview), then redeploy.
+`.vercelignore` leaves out `send-code`/`verify-code` and `vercel.json` forwards them to experimentai.dev, which has the
+Production email key.
+
+## Adding Stripe (embedded checkout)
+
+Not built yet. The plan system above is ready for it: Stripe only has to set `plans/{uid}`.
+
+1. **Stripe Dashboard → Products:** add Light, Pro, Max 5×, Max 10×, each with a monthly price ($10/$20/$100/$200) and
+   a yearly one ($100/$200/$1,000/$2,000, i.e. 2 months free). Copy each price ID (`price_…`). Start in **test mode**.
+2. **Vercel env vars:** `STRIPE_SECRET_KEY` (`sk_…`), `STRIPE_WEBHOOK_SECRET` (`whsec_…`, step 5) and the price IDs.
+   The publishable key (`pk_…`) is public and can sit in the page. Then `npm install stripe`.
+3. **`api/checkout.js`** (POST, signed in): create an embedded Checkout Session and return its `client_secret`:
+   ```js
+   const session = await stripe.checkout.sessions.create({
+     ui_mode: 'embedded', mode: 'subscription',
+     line_items: [{ price: PRICES[plan][billing], quantity: 1 }],
+     customer_email: user.email, client_reference_id: user.uid,
+     subscription_data: { metadata: { uid: user.uid, plan } },
+     return_url: `${origin}/home?checkout={CHECKOUT_SESSION_ID}`,
+   });
+   res.json({ clientSecret: session.client_secret });
+   ```
+4. **In the plans pop-up** (`wirePlans` in `public/app.js`, where it now says "Payments aren't connected yet"): load
+   `https://js.stripe.com/v3/` (Stripe.js must load from Stripe; it can't be self-hosted), then
+   ```js
+   const stripe = Stripe('pk_test_…');
+   const checkout = await stripe.initEmbeddedCheckout({ fetchClientSecret: () => api('/api/checkout', { plan, billing }).then((d) => d.clientSecret) });
+   checkout.mount('#checkout'); // an empty <div id="checkout"> in the sheet; checkout.destroy() when it closes
+   ```
+5. **`api/stripe-webhook.js`:** read the *raw* request body (don't touch `req.body`), check it with
+   `stripe.webhooks.constructEvent(raw, req.headers['stripe-signature'], STRIPE_WEBHOOK_SECRET)`, then
+   on `checkout.session.completed` / `customer.subscription.updated` set `plans/{uid}` to the subscription's plan
+   (from its metadata; only while `status` is `active` or `trialing`), and on `customer.subscription.deleted` delete it.
+   Stripe Dashboard → Developers → Webhooks → add `https://<site>/api/stripe-webhook` with those three events.
+6. **Changing or cancelling:** easiest is Stripe's **Customer Portal** (`stripe.billingPortal.sessions.create`), linked from
+   Settings. Save the Stripe customer ID in `plans/{uid}` in step 5 so you can open it.
+7. Test with card `4242 4242 4242 4242`, then switch to live keys.
+
+**Cookies:** Stripe.js sets its own fraud-prevention cookies, which breaks the site's "no cookies" promise. Either load
+Stripe.js only when someone opens checkout and update the note, or use Stripe's **hosted** Checkout (a redirect to
+checkout.stripe.com, `ui_mode` left out, `success_url` instead of `return_url`), which keeps cookies off this site.
+
 ## Notes
 
 - Gmail's code features ("Copy code" and similar) are Gmail's own detection. The email gives it every signal
