@@ -33,11 +33,19 @@ const ACCESS = new Set([
   'ae3ae4132254ca107278d03a30f1ecdfee4d322a2c29f5415e22677ef4e6485c',
   ...(process.env.APP_ACCESS_HASHES || '').split(',').map((s) => s.trim()).filter(Boolean),
 ]);
+const emailHash = (user) => user.email && createHash('sha256').update(user.email.trim().toLowerCase()).digest('hex');
+const isVerified = (user) => user.emailVerified || user.providerData.some((p) => p.providerId === 'google.com');
 export function requireAccess(user) {
-  const verified = user.emailVerified || user.providerData.some((p) => p.providerId === 'google.com');
-  const hash = user.email && createHash('sha256').update(user.email.trim().toLowerCase()).digest('hex');
-  if (!verified || !ACCESS.has(hash)) throw new HttpError(403, 'Experiment AI isn’t open to your account yet.');
+  if (!isVerified(user) || !ACCESS.has(emailHash(user))) throw new HttpError(403, 'Experiment AI isn’t open to your account yet.');
 }
+
+/* ── Unlimited: no daily/weekly limit and every model and effort, whatever the plan (spending is still recorded).
+      The owner's account (same hash as above); add more with UNLIMITED_HASHES, comma-separated. ── */
+const UNLIMITED = new Set([
+  'ae3ae4132254ca107278d03a30f1ecdfee4d322a2c29f5415e22677ef4e6485c',
+  ...(process.env.UNLIMITED_HASHES || '').split(',').map((s) => s.trim()).filter(Boolean),
+]);
+export const isUnlimited = (user) => isVerified(user) && UNLIMITED.has(emailHash(user));
 
 /* ── The Gateway's model list (public): per-token prices and the effort levels each model takes. Cached for an hour. ── */
 let catalog = null;

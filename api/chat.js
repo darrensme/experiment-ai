@@ -3,11 +3,12 @@
 // as JSON lines: { type: 'text', text } … then { type: 'done', spent, budgets } or { type: 'error', error }.
 // Checks first: signed in, allowed into the app, the plan allows this model and effort, and today's and this week's
 // budgets aren't used up. The most the reply could cost is held back before it starts, and the real cost (from the
-// Gateway's token counts at list price) replaces it at the end.
+// Gateway's token counts at list price) replaces it at the end. Unlimited accounts skip the plan and budget checks;
+// their spending is still recorded.
 import { HttpError, handle, requireUser } from './_shared.js';
 import {
-  EFFORTS, GATEWAY, MODELS, PLANS, addSpent, budgetsFor, costOf, effortFor, inputRate, modelInfo, outputRate,
-  planOf, requireAccess, reserve,
+  EFFORTS, GATEWAY, MODELS, PLANS, addSpent, budgetsFor, costOf, effortFor, inputRate, isUnlimited, modelInfo,
+  outputRate, planOf, requireAccess, reserve,
 } from './_ai.js';
 
 const MAX_MESSAGES = 40;
@@ -41,7 +42,8 @@ export default handle(async (req, res) => {
   const user = await requireUser(req);
   requireAccess(user);
   const plan = await planOf(user.uid);
-  const rank = PLANS.indexOf(plan);
+  const unlimited = isUnlimited(user);
+  const rank = unlimited ? PLANS.length - 1 : PLANS.indexOf(plan);
 
   const id = String(req.body?.model || '');
   if (!(id in MODELS)) throw new HttpError(400, 'Pick a model first.');
@@ -56,8 +58,8 @@ export default handle(async (req, res) => {
   const promptGuess = Math.ceil((system().length + messages.reduce((n, m) => n + m.content.length, 0)) / 3) + 50 * messages.length;
   const inCost = promptGuess * inputRate(model, promptGuess);
   const perOut = outputRate(model, promptGuess) || 1e-9;
-  const held = await reserve(user.uid, plan, inCost + MAX_REPLY_TOKENS * perOut);
-  const maxTokens = Math.min(MAX_REPLY_TOKENS, Math.floor((held - inCost) / perOut));
+  const held = unlimited ? 0 : await reserve(user.uid, plan, inCost + MAX_REPLY_TOKENS * perOut);
+  const maxTokens = unlimited ? MAX_REPLY_TOKENS : Math.min(MAX_REPLY_TOKENS, Math.floor((held - inCost) / perOut));
   if (maxTokens < MIN_REPLY_TOKENS) {
     await addSpent(user.uid, -held);
     throw new HttpError(429, 'You’re almost at your usage limit. Try a smaller model, or wait for it to reset.');
@@ -133,7 +135,7 @@ export default handle(async (req, res) => {
   try {
     const spent = await addSpent(user.uid, cost - held);
     if (failed) send({ type: 'error', error: failed });
-    send({ type: 'done', spent, budgets: budgetsFor(plan) });
+    send({ type: 'done', spent, budgets: budgetsFor(plan), unlimited });
   } catch (err) {
     console.error('usage', err);
     send({ type: 'error', error: failed || 'Your usage couldn’t be updated. Refresh the page.' });

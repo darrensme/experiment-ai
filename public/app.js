@@ -269,8 +269,13 @@ const planPreview = location.hostname === 'localhost' && new URLSearchParams(loc
 const cachedPlan = (() => { try { return localStorage.getItem(PLAN_KEY); } catch { return null; } })();
 const plan = planPreview || (PLANS.includes(cachedPlan) ? cachedPlan : 'free');
 const rank = PLANS.includes(plan) ? PLANS.indexOf(plan) : 2; // an unknown preview value counts as Pro
-const paid = rank >= 1; // Light and up: every model, Memory
-const hasProjects = rank >= 2; // Pro and up
+// Unlimited accounts (the server says so) get every feature and model whatever their plan; their plan still shows
+// as it is. Kept in this browser like the plan, so the page opens with it.
+const UNLIMITED_KEY = 'experimentai.unlimited';
+const unlimited = !planPreview && (() => { try { return localStorage.getItem(UNLIMITED_KEY) === '1'; } catch { return false; } })();
+const featureRank = unlimited ? PLANS.length - 1 : rank;
+const paid = featureRank >= 1; // Light and up: every model, Memory
+const hasProjects = featureRank >= 2; // Pro and up
 const modes = { research: false, memory: paid };
 const modesRow = $('.modes', composer);
 
@@ -396,7 +401,7 @@ const ALL_MODELS = MODELS.flatMap((g) => g.items);
 const MODEL_KEY = 'experimentai.model';
 const modelBtn = $('.model-btn');
 const modelMenu = $('.model-menu');
-const allowedModel = (id) => ALL_MODELS.some((m) => m.id === id && m.minRank <= rank);
+const allowedModel = (id) => ALL_MODELS.some((m) => m.id === id && m.minRank <= featureRank);
 const choice = { model: paid ? 'anthropic/claude-sonnet-5.5' : 'anthropic/claude-haiku-5.5', effort: 'Medium' };
 try {
   const saved = JSON.parse(localStorage.getItem(MODEL_KEY) || '{}');
@@ -449,7 +454,7 @@ function renderModel() {
     b.className = `model-item${m.id === choice.model ? ' is-current' : ''}`;
     b.setAttribute('role', 'menuitemradio');
     b.setAttribute('aria-checked', String(m.id === choice.model));
-    b.disabled = m.minRank > rank;
+    b.disabled = m.minRank > featureRank;
     b.dataset.model = m.id;
     b.append(textEl('span', '', m.name));
     if (m.id === choice.model) b.insertAdjacentHTML('beforeend', '<span class="tick" aria-hidden="true">✓</span>');
@@ -782,10 +787,15 @@ async function loadUsage(user) {
       if (billingInfo?.billing) billing = billingInfo.billing;
       fillSheets(user);
     }
-    if (!planPreview && PLANS.includes(data.plan) && data.plan !== plan) {
-      try { localStorage.setItem(PLAN_KEY, data.plan); } catch { return; }
-      if (sessionStorage.getItem(PLAN_KEY) !== data.plan) { // reload once, never in a loop
-        sessionStorage.setItem(PLAN_KEY, data.plan);
+    const nowUnlimited = Boolean(data.unlimited);
+    if (!planPreview && PLANS.includes(data.plan) && (data.plan !== plan || nowUnlimited !== unlimited)) {
+      try {
+        localStorage.setItem(PLAN_KEY, data.plan);
+        localStorage.setItem(UNLIMITED_KEY, nowUnlimited ? '1' : '0');
+      } catch { return; }
+      const seen = `${data.plan}|${nowUnlimited}`;
+      if (sessionStorage.getItem(PLAN_KEY) !== seen) { // reload once, never in a loop
+        sessionStorage.setItem(PLAN_KEY, seen);
         location.reload();
       }
     }
@@ -876,9 +886,11 @@ async function finishCheckout() {
 function renderUsage() {
   for (const period of ['day', 'week']) {
     const box = $(`.usage-bar[data-period="${period}"]`);
-    const raw = (spent[period] / budget[period]) * 100;
+    const raw = unlimited ? 0 : (spent[period] / budget[period]) * 100;
     const pct = Math.min(100, Math.round(raw));
-    $('.usage-pct', box).textContent = pct >= 100 ? 'Limit reached' : raw > 0 && raw < 1 ? '<1% used' : `${pct}% used`;
+    $('.usage-pct', box).textContent = unlimited
+      ? `Unlimited · $${spent[period].toFixed(2)} of AI used`
+      : pct >= 100 ? 'Limit reached' : raw > 0 && raw < 1 ? '<1% used' : `${pct}% used`;
     const meter = $('.bar', box);
     meter.setAttribute('aria-valuenow', String(pct));
     meter.dataset.level = pct >= 100 ? 'full' : pct >= 80 ? 'high' : '';
@@ -896,7 +908,7 @@ function fillSheets(user) {
   // a Google account’s email belongs to Google, so it can’t be changed here
   $('[data-edit="email"]').hidden = usesGoogle(user);
   $('.email-managed').hidden = !usesGoogle(user);
-  $('.usage-limit').textContent = PLAN_USAGE[planKey];
+  $('.usage-limit').textContent = unlimited ? 'Unlimited (every model, no limits)' : PLAN_USAGE[planKey];
   $$('.set-billing').forEach((el) => {
     el.textContent = billingText();
     el.parentElement.hidden = !billingText();
@@ -1173,6 +1185,7 @@ confirmDelete.addEventListener('click', async () => {
       localStorage.removeItem(MODEL_KEY);
       localStorage.removeItem(HIDDEN_KEY);
       localStorage.removeItem(PLAN_KEY);
+      localStorage.removeItem(UNLIMITED_KEY);
     } catch {}
     await signOut(auth).catch(() => {});
     location.replace('/?deleted');

@@ -98,6 +98,10 @@ Days and weeks are UTC (weeks start Monday). The most a reply could cost is held
 can't overspend, and the reply's length is capped to what's left; the real cost replaces the hold when it finishes.
 Spending is in `usage/{uid}`; `api/usage.js` gives the app the plan and the numbers for the Usage bars.
 
+**Unlimited accounts** (`UNLIMITED` in `api/_ai.js`: the owner account, stored as a SHA-256 of the email; add more with
+`UNLIMITED_HASHES`) have no daily/weekly limit and every model and effort, whatever their plan. Their spending is still
+recorded and the Usage panel shows it in dollars.
+
 Stripe sets plans (see Payments). To give someone a plan by hand without paying: Firestore → `plans` → document ID =
 their UID → field `plan` (string) = `light`, `pro`, `max-5x` or `max-10x` (a Stripe event for them later overwrites it).
 
