@@ -368,6 +368,7 @@ function setChoice(next) {
 
 function renderModel() {
   const m = modelById(choice.model);
+  $('model-logo').src = AIS[m.ai].logo;
   $('model-name').textContent = shortName(m);
   $('model-effort').textContent = EFFORT_LABEL[choice.effort];
   modelBtn.title = `${m.name} · ${EFFORT_LABEL[choice.effort]} effort`;
