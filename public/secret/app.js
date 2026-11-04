@@ -61,6 +61,25 @@ function fmtSize(b) {
   if (b < 1048576) return `${(b / 1024).toFixed(b < 10240 ? 1 : 0)} KB`;
   return `${(b / 1048576).toFixed(1)} MB`;
 }
+// show/hide a popup with its open/close animation (CSS: .closing plays the exit, then it's hidden)
+function showPop(node) {
+  clearTimeout(node._closeTimer);
+  node.classList.remove('closing');
+  node.hidden = false;
+}
+function hidePop(node) {
+  if (node.hidden || node.classList.contains('closing')) return;
+  node.classList.add('closing');
+  node._closeTimer = setTimeout(() => { node.hidden = true; node.classList.remove('closing'); }, 170);
+}
+const isShown = (node) => !node.hidden && !node.classList.contains('closing');
+// restart an entrance animation class on a node
+function replay(node, cls) {
+  node.classList.remove(cls);
+  void node.offsetWidth;
+  node.classList.add(cls);
+}
+
 let noticeTimer;
 function notice(text) {
   const n = $('notice');
@@ -120,13 +139,16 @@ $('side-close').addEventListener('click', () => setSidebar(false));
 $('side-open').addEventListener('click', () => setSidebar(true));
 $('scrim').addEventListener('click', () => setSidebar(false));
 
+let seenChats = null; // chat ids already shown, so only new ones slide in
 function renderSidebar() {
   const sorted = [...chats].sort(byRecent);
-  $('chat-list').replaceChildren(...sorted.map((c) => el('li', {},
+  const isNew = (id) => seenChats && !seenChats.has(id);
+  $('chat-list').replaceChildren(...sorted.map((c) => el('li', { class: isNew(c.id) ? 'new' : null },
     el('button', { type: 'button', class: 'chat-item', title: c.title, 'aria-current': c.id === currentId ? 'page' : null, onclick: () => openChat(c.id) }, c.title),
     el('button', { type: 'button', class: 'chat-del', 'aria-label': `Delete “${c.title}”`, title: 'Delete chat', onclick: () => deleteChat(c.id) }, icon('x')),
   )));
   $('chats-empty').hidden = chats.length > 0;
+  seenChats = new Set(chats.map((c) => c.id));
 }
 
 function deleteChat(id) {
@@ -245,8 +267,9 @@ input.addEventListener('keydown', (e) => {
   }
 });
 
+let seenChips = new Set(); // chip labels already shown, so only new ones pop in
 function chip(iconName, label, removeLabel, onRemove, cls = '') {
-  return el('span', { class: `chip ${cls}` },
+  return el('span', { class: `chip ${cls}${seenChips.has(cls + label) ? '' : ' new'}`, 'data-key': cls + label },
     iconName && icon(iconName),
     el('span', { class: 'chip-label' }, label),
     el('button', { type: 'button', class: 'chip-x', 'aria-label': removeLabel, title: removeLabel, onclick: onRemove }, icon('x')));
@@ -269,6 +292,7 @@ function renderChips() {
     () => { attachments.splice(i, 1); renderChips(); },
   )));
   chipsEl.replaceChildren(...items);
+  seenChips = new Set(items.map((i) => i.dataset.key));
   autosize();
 }
 
@@ -389,23 +413,24 @@ function renderModelMenu() {
 
   const levels = effortsFor(modelById(choice.model));
   $('effort-seg').style.setProperty('--n', levels.length);
+  $('effort-seg').style.setProperty('--i', levels.indexOf(choice.effort)); // slides the highlight
   fill($('effort-seg'), levels.map((k) => el('button', {
     type: 'button', class: 'effort-opt', role: 'radio', 'aria-checked': String(k === choice.effort),
     onclick: () => setChoice({ effort: k }),
   }, EFFORT_LABEL[k])));
 }
 
-const modelMenuOpen = () => !modelMenu.hidden;
+const modelMenuOpen = () => isShown(modelMenu);
 function openModelMenu() {
   closeMenu();
   renderModelMenu();
-  modelMenu.hidden = false;
+  showPop(modelMenu);
   modelBtn.setAttribute('aria-expanded', 'true');
   placeMenu(modelMenu);
   modelMenu.querySelector('[aria-checked="true"]')?.scrollIntoView({ block: 'nearest' });
 }
 function closeModelMenu() {
-  modelMenu.hidden = true;
+  hidePop(modelMenu);
   modelBtn.setAttribute('aria-expanded', 'false');
 }
 modelBtn.addEventListener('click', () => (modelMenuOpen() ? closeModelMenu() : openModelMenu()));
@@ -414,14 +439,14 @@ document.addEventListener('pointerdown', (e) => {
 });
 
 /* ── + menu: upload files / a folder, add to a project, save to memory ── */
-const menuOpen = () => !plusMenu.hidden;
+const menuOpen = () => isShown(plusMenu);
 function openMenu() {
   closeModelMenu();
   memoryToggle.checked = settings().memory;
   renderMenuProjects();
   $('menu-projects').hidden = true;
   $('menu-project-btn').setAttribute('aria-expanded', 'false');
-  plusMenu.hidden = false;
+  showPop(plusMenu);
   plusBtn.setAttribute('aria-expanded', 'true');
   placeMenu(plusMenu);
 }
@@ -437,7 +462,7 @@ function placeMenu(menu) {
   menu.style.maxHeight = `${Math.max(160, Math.min(h, down ? below : above))}px`;
 }
 function closeMenu() {
-  plusMenu.hidden = true;
+  hidePop(plusMenu);
   plusBtn.setAttribute('aria-expanded', 'false');
 }
 plusBtn.addEventListener('click', () => (menuOpen() ? closeMenu() : openMenu()));
@@ -544,6 +569,7 @@ function showView(mode, id = null) {
   projView = { mode, id };
   renderProjects();
   projectsBody.scrollTop = 0;
+  replay(projectsBody, 'view-in');
 }
 const backButton = () => el('button', { type: 'button', class: 'back', onclick: () => showView('list') }, icon('back'), 'All projects');
 
@@ -654,16 +680,17 @@ function deleteProject(id) {
 /* ── Search: titles, messages and attached file names in every chat ── */
 let results = [];
 let active = 0;
-const searchOpen = () => !searchLayer.hidden;
+const searchOpen = () => isShown(searchLayer);
 function openSearch() {
   closeMenu();
-  searchLayer.hidden = false;
+  closeModelMenu();
+  showPop(searchLayer);
   searchInput.value = '';
   runSearch();
   searchInput.focus();
   if (phone.matches) setSidebar(false);
 }
-function closeSearch() { searchLayer.hidden = true; }
+function closeSearch() { hidePop(searchLayer); }
 $('search-btn').addEventListener('click', openSearch);
 searchLayer.addEventListener('pointerdown', (e) => { if (e.target === searchLayer) closeSearch(); });
 searchInput.addEventListener('input', runSearch);
