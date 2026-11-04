@@ -189,7 +189,6 @@ let seenChats = null; // chat ids already shown, so only new ones slide in
 function renderSidebar() {
   const sorted = [...chats].sort(SORTERS[sortMode]);
   $('sort-label').textContent = SORTS.find(([k]) => k === sortMode)[1];
-  $('sort').hidden = chats.length < 2; // nothing to sort with 0–1 chats
   const isNew = (id) => seenChats && !seenChats.has(id);
   $('chat-list').replaceChildren(...sorted.map((c) => el('li', { class: isNew(c.id) ? 'new' : null },
     el('button', { type: 'button', class: 'chat-item', title: c.title, 'aria-current': c.id === currentId ? 'page' : null, onclick: () => openChat(c.id) }, c.title),
