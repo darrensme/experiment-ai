@@ -1,11 +1,60 @@
 {
   "outputDirectory": "public",
-  "cleanUrls": true,
+  "cleanUrls": false,
   "trailingSlash": false,
+  "functions": {
+    "api/chat.js": {
+      "maxDuration": 300
+    }
+  },
+  "redirects": [
+    {
+      "source": "/secret/:path*",
+      "destination": "/",
+      "permanent": false
+    },
+    {
+      "source": "/waitlist/:path*",
+      "destination": "/",
+      "permanent": false
+    },
+    {
+      "source": "/:page([^/.]+)\\.html",
+      "destination": "/:page",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     {
       "source": "/__/auth/:path*",
       "destination": "https://experiment-labs-ai.firebaseapp.com/__/auth/:path*"
+    },
+    {
+      "source": "/",
+      "has": [{ "type": "host", "value": "secret.experimentai.dev" }],
+      "destination": "/secret/index.html"
+    },
+    {
+      "source": "/:file([^/]+\\.[A-Za-z0-9]+)",
+      "has": [{ "type": "host", "value": "secret.experimentai.dev" }],
+      "destination": "/secret/:file"
+    },
+    {
+      "source": "/:page([^/.]+)",
+      "has": [{ "type": "host", "value": "secret.experimentai.dev" }],
+      "destination": "/secret/:page.html"
+    },
+    {
+      "source": "/",
+      "destination": "/waitlist/index.html"
+    },
+    {
+      "source": "/:file([^/]+\\.[A-Za-z0-9]+)",
+      "destination": "/waitlist/:file"
+    },
+    {
+      "source": "/:page([^/.]+)",
+      "destination": "/waitlist/:page.html"
     }
   ],
   "headers": [
@@ -19,6 +68,16 @@
         {
           "key": "Referrer-Policy",
           "value": "strict-origin-when-cross-origin"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "secret.experimentai.dev" }],
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow"
         }
       ]
     }
