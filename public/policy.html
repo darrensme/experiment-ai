@@ -71,7 +71,7 @@
           <li><strong>Waitlist details.</strong> Your place in line, how you signed up, and when you joined.</li>
           <li><strong>Email verification.</strong> When you sign up with email, we send you a 6-digit code. We store only a scrambled (hashed) version of the code, along with when it was sent and how many attempts were made, so we can stop abuse.</li>
           <li><strong>What you put into Experiment AI.</strong> Once the app is available: the messages you send, the files and folders you upload, the answers you get back, your chat history, and your Memory if it’s switched on.</li>
-          <li><strong>Connected services.</strong> Only if you choose to connect them: Google Drive (only the files you pick), Google Calendar, Notion and GitHub. We access only what you allow, and you can disconnect at any time.</li>
+          <li><strong>Connected services.</strong> Only if you choose to connect them: Google Drive (only the files you pick), Notion, GitHub and Canva. We access only what you allow, and you can disconnect at any time.</li>
           <li><strong>Usage information.</strong> We use Google Analytics in a cookie-free mode to count page views and see roughly where visitors come from and which devices they use. Our host, Vercel, keeps standard server logs (such as IP address, browser type and time of request) for security and reliability.</li>
           <li><strong>Messages to us.</strong> If you email contact@experimentai.dev, we keep that conversation.</li>
           <li><strong>Payments.</strong> When paid plans open, payments will be handled by our payment provider. We won’t store your full card number.</li>
@@ -97,9 +97,9 @@
         </ul>
 
         <h2>4. Google user data</h2>
-        <p>If you connect Google Drive or Google Calendar, Experiment AI’s use and transfer of information received from Google APIs to any other app will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>, including the Limited Use requirements. In particular:</p>
+        <p>If you connect Google Drive, Experiment AI’s use and transfer of information received from Google APIs to any other app will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>, including the Limited Use requirements. In particular:</p>
         <ul>
-          <li>We use Google data only to provide the features you ask for, such as reading a file you picked or checking your calendar.</li>
+          <li>We use Google data only to provide the features you ask for, such as reading a file you picked.</li>
           <li>We don’t use Google data for advertising, and we don’t sell it.</li>
           <li>We don’t use Google Workspace data to develop, improve or train generalized AI or machine learning models.</li>
           <li>No person at Experiment Labs reads your Google data unless you ask us to, it’s needed for security, or the law requires it.</li>
@@ -169,6 +169,7 @@
       <div class="step step-join">
         <h3 id="auth-title"><span class="for-signup">Create your <em class="serif gold">account</em></span><span class="for-login">Welcome <em class="serif gold">back</em></span></h3>
         <p class="modal-sub"><span class="for-signup">Sign up to start using Experiment AI. It only takes a moment.</span><span class="for-login">Log in to pick up where you left off.</span></p>
+        <label class="agree for-signup"><input type="checkbox" name="agree" /><span>I agree to the <a href="/tos" target="_blank" rel="noopener">Terms of Service</a> and <a href="/policy" target="_blank" rel="noopener">Privacy Policy</a>.</span></label>
         <button type="button" class="btn btn-lg full btn-google" data-provider="google">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.46a5.52 5.52 0 0 1-2.4 3.62v3h3.88c2.27-2.09 3.58-5.17 3.58-8.81z"/><path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.94-2.91l-3.88-3.01c-1.07.72-2.45 1.15-4.06 1.15-3.12 0-5.77-2.11-6.71-4.95H1.28v3.11A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.29 14.28A7.2 7.2 0 0 1 4.91 12c0-.79.14-1.56.38-2.28V6.61H1.28A12 12 0 0 0 0 12c0 1.94.46 3.77 1.28 5.39l4.01-3.11z"/><path fill="#EA4335" d="M12 4.77c1.76 0 3.34.61 4.59 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.28 6.61l4.01 3.11C6.23 6.88 8.88 4.77 12 4.77z"/></svg>
           Continue with Google
@@ -182,7 +183,7 @@
         </form>
         <p class="fine for-signup">Already have an account? <button type="button" class="link-inline" data-mode="login">Log in</button></p>
         <p class="fine for-login">New to Experiment AI? <button type="button" class="link-inline" data-mode="signup">Sign up</button></p>
-        <p class="fine">By continuing, you agree to our <a href="/tos">Terms</a> and <a href="/policy">Privacy Policy</a>.</p>
+        <p class="fine for-login">By logging in, you agree to our <a href="/tos">Terms</a> and <a href="/policy">Privacy Policy</a>.</p>
       </div>
 
       <div class="step step-verify">

@@ -2,8 +2,8 @@ import { auth, authMessage, db } from './firebase.js';
 
 const FIRESTORE = 'https://www.gstatic.com/firebasejs/13.0.0/firebase-firestore.js';
 import {
-  GoogleAuthProvider, createUserWithEmailAndPassword, getRedirectResult, onAuthStateChanged, signInWithEmailAndPassword,
-  signInWithPopup, signInWithRedirect, signOut, updateProfile,
+  GoogleAuthProvider, createUserWithEmailAndPassword, getAdditionalUserInfo, getRedirectResult, onAuthStateChanged,
+  signInWithEmailAndPassword, signInWithPopup, signInWithRedirect, signOut, updateProfile,
 } from 'https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js';
 
 (() => {
@@ -116,16 +116,16 @@ import {
   }
 
   const DEMOS = {
-    async schedule(el) {
-      const gym = $('.e3', el);
-      el.classList.remove('on', 'moved');
-      gym.style.setProperty('--c', 4);
-      await sleep(300);
-      el.classList.add('on');
-      await sleep(1800);
-      gym.style.setProperty('--c', 3);
-      el.classList.add('moved');
-      await sleep(3600);
+    async compare(el) {
+      const cols = $$('.cmp-col', el);
+      el.classList.remove('picked');
+      cols.forEach((c) => c.classList.remove('on', 'best'));
+      await sleep(400);
+      for (const c of cols) { c.classList.add('on'); await sleep(520); }
+      await sleep(900);
+      cols[0].classList.add('best');
+      el.classList.add('picked');
+      await sleep(3400);
     },
 
     async tools(el) {
@@ -319,6 +319,31 @@ import {
     await finish({ user: auth.currentUser, providerId: 'password' });
   }
 
+  /* Terms + Privacy: the box must be ticked to sign up (Log in doesn't need it; those accounts already agreed).
+     A brand-new account made with "Log in" + Google without agreeing is undone and sent to Sign up. The tick is kept
+     in sessionStorage across the Google redirect fallback. */
+  const AGREED_KEY = 'experimentai.agreed';
+  const agreeBox = $('input[name="agree"]', modal);
+  const agreed = () => {
+    if (agreeBox?.checked) return true;
+    try { return sessionStorage.getItem(AGREED_KEY) === '1'; } catch { return false; }
+  };
+  const askToAgree = (text = 'Tick the box to agree to the Terms of Service and Privacy Policy first.') => {
+    say(text, true);
+    agreeBox?.focus();
+  };
+  agreeBox?.addEventListener('change', () => {
+    try { sessionStorage.setItem(AGREED_KEY, agreeBox.checked ? '1' : '0'); } catch {}
+    if (agreeBox.checked && msg.classList.contains('err')) say('');
+  });
+  async function refuseUnagreedNew(cred) {
+    if (!getAdditionalUserInfo(cred)?.isNewUser || agreed()) return false;
+    await cred.user.delete().catch(() => signOut(auth));
+    setMode('signup');
+    askToAgree('You don’t have an account yet. Tick the box to agree to the Terms of Service and Privacy Policy, then sign up.');
+    return true;
+  }
+
   const google = new GoogleAuthProvider();
   const form = $('.email-form', modal);
   const verifyForm = $('.verify-form', modal);
@@ -330,10 +355,13 @@ import {
   };
 
   $('[data-provider="google"]', modal).addEventListener('click', async () => {
+    if (modal.dataset.mode !== 'login' && !agreed()) return askToAgree();
     lock(true);
     say('Opening Google…');
     try {
-      await finish(await signInWithPopup(auth, google));
+      const cred = await signInWithPopup(auth, google);
+      if (await refuseUnagreedNew(cred)) return;
+      await finish(cred);
     } catch (err) {
       if (err.code === 'auth/popup-blocked') return signInWithRedirect(auth, google);
       if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') return say('');
@@ -351,9 +379,10 @@ import {
     const password = form.password.value;
     if (!/^\S+@\S+\.\S+$/.test(email)) return say('Enter a valid email.', true);
     if (password.length < 8) return say('Password needs at least 8 characters.', true);
+    const login = modal.dataset.mode === 'login';
+    if (!login && !agreed()) return askToAgree();
 
     lock(true);
-    const login = modal.dataset.mode === 'login';
     say(login ? 'Logging you in…' : 'Creating your account…');
     try {
       let cred;
@@ -444,9 +473,10 @@ import {
   }));
 
   // Coming back from the redirect fallback.
-  getRedirectResult(auth).then((cred) => {
+  getRedirectResult(auth).then(async (cred) => {
     if (!cred) return;
     open();
+    if (await refuseUnagreedNew(cred)) return;
     return finish(cred);
   }).catch((err) => {
     open();
