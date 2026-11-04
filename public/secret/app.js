@@ -30,10 +30,49 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && phone.matches) setSidebar(false);
 });
 
-/* ── New chat: clears the thread ── */
+/* ── Home greeting: a different one on every load and every return to the home screen ── */
+// [before, italic word, after]
+const GREETINGS = [
+  ['What are we ', 'trying', ' today?'],
+  ['What should we ', 'build', ' today?'],
+  ['What are we ', 'brewing', ' today?'],
+  ['Got an ', 'idea', ' brewing?'],
+  ['Ready to ', 'experiment', '?'],
+  ["What's on your ", 'mind', '?'],
+  ["What's the next ", 'experiment', '?'],
+  ['Where should we ', 'start', '?'],
+  ['Something new to ', 'try', '?'],
+  ['What are we ', 'figuring out', ' today?'],
+  ["Let's make something ", 'wonderful', ''],
+  ['What can I ', 'help', ' with?'],
+];
+const greetingText = document.getElementById('greeting-text');
+const greetingRow = greetingText.parentElement;
+
+function newGreeting() {
+  let last = -1;
+  try { last = Number(sessionStorage.getItem('greeting') ?? -1); } catch {}
+  let i;
+  do { i = Math.floor(Math.random() * GREETINGS.length); } while (i === last && GREETINGS.length > 1);
+  try { sessionStorage.setItem('greeting', String(i)); } catch {}
+
+  const [before, word, after] = GREETINGS[i];
+  const em = document.createElement('span');
+  em.className = 'serif';
+  em.textContent = word;
+  greetingText.replaceChildren(before, em, after);
+
+  greetingRow.classList.remove('fresh');
+  void greetingRow.offsetWidth; // restart the entrance animation
+  greetingRow.classList.add('fresh');
+}
+newGreeting();
+
+/* ── New chat: back to the home screen ── */
 document.getElementById('new-chat').addEventListener('click', () => {
   messages.replaceChildren();
   app.classList.remove('has-messages');
+  newGreeting();
   if (phone.matches) setSidebar(false);
   input.focus();
 });
