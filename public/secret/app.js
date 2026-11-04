@@ -291,8 +291,7 @@ composer.addEventListener('submit', (e) => {
     currentId = chat.id;
   }
   const files = attachments.flatMap((a) => a.files);
-  const effort = hasEffort(modelById(choice.model)) ? choice.effort : null;
-  const msg = { text, at: now, model: choice.model, effort, attachments: attachments.map((a) => ({ kind: a.kind, name: a.name, count: a.files.length })), files };
+  const msg = { text, at: now, model: choice.model, effort: choice.effort, attachments: attachments.map((a) => ({ kind: a.kind, name: a.name, count: a.files.length })), files };
   chat.messages.push(msg);
   chat.model = choice.model;
   chat.effort = choice.effort;
@@ -321,7 +320,8 @@ const AIS = {
   muse: { name: 'Muse', logo: '/assets/ai/metaai-color.svg' },
   grok: { name: 'Grok', logo: '/assets/ai/grok.svg' },
 };
-// effort: false = the model has no effort setting
+// efforts: which effort levels the model offers (default Low / Medium / High)
+const FLASH = ['low', 'high'];
 const MODELS = [
   { id: 'claude-fable-5-1', ai: 'claude', name: 'Claude Fable 5.1', note: 'Most capable, for long-running work' },
   { id: 'claude-opus-5-5', ai: 'claude', name: 'Claude Opus 5.5', note: 'Deep reasoning and coding' },
@@ -333,16 +333,22 @@ const MODELS = [
   { id: 'gpt-6-luna', ai: 'gpt', name: 'GPT-6 Luna', note: 'Quick and low-cost' },
   { id: 'gemini-4-argon', ai: 'gemini', name: 'Gemini 4 Argon', note: "Google's newest flagship" },
   { id: 'gemini-3.1-pro-preview', ai: 'gemini', name: 'Gemini 3.1 Pro', note: 'Strong reasoning, long documents' },
-  { id: 'gemini-3.8-flash', ai: 'gemini', name: 'Gemini 3.8 Flash', note: 'Fast and capable' },
-  { id: 'gemini-3.5-flash-lite', ai: 'gemini', name: 'Gemini 3.5 Flash-Lite', note: 'Fastest, lowest cost', effort: false },
-  { id: 'muse-wonder-1.0', ai: 'muse', name: 'Muse Wonder', note: "Meta's most capable", effort: false },
-  { id: 'muse-spark-1.3', ai: 'muse', name: 'Muse Spark 1.3', note: 'Quick everyday model', effort: false },
+  { id: 'gemini-3.8-flash', ai: 'gemini', name: 'Gemini 3.8 Flash', note: 'Fast and capable', efforts: FLASH },
+  { id: 'gemini-3.5-flash-lite', ai: 'gemini', name: 'Gemini 3.5 Flash-Lite', note: 'Fastest, lowest cost', efforts: FLASH },
+  { id: 'muse-wonder-1.0', ai: 'muse', name: 'Muse Wonder', note: "Meta's most capable" },
+  { id: 'muse-spark-1.3', ai: 'muse', name: 'Muse Spark 1.3', note: 'Quick everyday model' },
   { id: 'grok-4.7', ai: 'grok', name: 'Grok 4.7', note: 'Coding, agents and knowledge work' },
   { id: 'grok-4.6', ai: 'grok', name: 'Grok 4.6', note: 'The previous Grok' },
 ];
-const EFFORTS = [['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['max', 'Max']];
+const EFFORT_LABEL = { low: 'Low', medium: 'Medium', high: 'High' };
 const modelById = (id) => MODELS.find((m) => m.id === id) || null;
-const hasEffort = (m) => m.effort !== false;
+const effortsFor = (m) => m.efforts || ['low', 'medium', 'high'];
+// keep the effort if this model has it, otherwise the closest one it does have
+const fitEffort = (m, effort) => {
+  const list = effortsFor(m);
+  if (list.includes(effort)) return effort;
+  return list.includes('medium') && effort !== 'max' ? 'medium' : 'high';
+};
 const shortName = (m) => m.name.replace(/^Claude /, '');
 const modelMenu = $('model-menu');
 const modelBtn = $('model-btn');
@@ -350,22 +356,21 @@ const modelBtn = $('model-btn');
 let choice = { model: 'claude-sonnet-5-5', effort: 'medium' };
 try {
   const c = JSON.parse(localStorage.getItem('ea.model'));
-  if (c && modelById(c.model)) choice = { model: c.model, effort: EFFORTS.some(([k]) => k === c.effort) ? c.effort : 'medium' };
+  if (c && modelById(c.model)) choice = { model: c.model, effort: fitEffort(modelById(c.model), c.effort) };
 } catch {}
 
 function setChoice(next) {
-  choice = { ...choice, ...next };
+  const merged = { ...choice, ...next };
+  choice = { model: merged.model, effort: fitEffort(modelById(merged.model), merged.effort) };
   try { localStorage.setItem('ea.model', JSON.stringify(choice)); } catch {}
   renderModel();
 }
 
 function renderModel() {
   const m = modelById(choice.model);
-  $('model-logo').src = AIS[m.ai].logo;
   $('model-name').textContent = shortName(m);
-  $('model-effort').textContent = hasEffort(m) ? EFFORTS.find(([k]) => k === choice.effort)[1] : '';
-  $('model-effort').hidden = !hasEffort(m);
-  modelBtn.title = `${m.name}${hasEffort(m) ? ` · ${$('model-effort').textContent} effort` : ''}`;
+  $('model-effort').textContent = EFFORT_LABEL[choice.effort];
+  modelBtn.title = `${m.name} · ${EFFORT_LABEL[choice.effort]} effort`;
   modelBtn.setAttribute('aria-label', `Model: ${modelBtn.title}`);
   if (!modelMenu.hidden) renderModelMenu();
 }
@@ -381,13 +386,12 @@ function renderModelMenu() {
       m.id === choice.model && icon('check')))));
   fill($('model-groups'), groups);
 
-  const m = modelById(choice.model);
-  const on = hasEffort(m);
-  $('effort-note').textContent = on ? 'How hard it thinks before answering' : `${m.name} doesn't have effort settings`;
-  fill($('effort-seg'), EFFORTS.map(([k, label]) => el('button', {
-    type: 'button', class: 'effort-opt', role: 'radio', 'aria-checked': String(on && k === choice.effort), disabled: !on,
+  const levels = effortsFor(modelById(choice.model));
+  $('effort-seg').style.setProperty('--n', levels.length);
+  fill($('effort-seg'), levels.map((k) => el('button', {
+    type: 'button', class: 'effort-opt', role: 'radio', 'aria-checked': String(k === choice.effort),
     onclick: () => setChoice({ effort: k }),
-  }, label)));
+  }, EFFORT_LABEL[k])));
 }
 
 const modelMenuOpen = () => !modelMenu.hidden;
@@ -423,7 +427,7 @@ function openMenu() {
 // open below the bar if it fits, otherwise above (whichever side has more room), and never off-screen
 function placeMenu(menu) {
   const r = composer.getBoundingClientRect();
-  const below = window.innerHeight - r.bottom - 16;
+  const below = window.innerHeight - r.bottom - 16 - 28; // 28 = the model text under the bar
   const above = r.top - 16;
   menu.style.maxHeight = '';
   const h = menu.scrollHeight;
