@@ -111,9 +111,12 @@ their UID → field `plan` (string) = `light`, `pro`, `max-5x` or `max-10x` (a S
 
 - **Greeting:** the logo sits left of a line picked once per visit (time of day, weekday, a few for fun) with the
   person's name or nickname; Settings → Appearance can switch to a plain "Good evening".
-- **Chats** are saved in the browser (`experimentai.chats.<uid>`, up to 200; oldest unpinned go first if storage is full).
-  The sidebar sorts them (recent, newest, oldest, A–Z, Z–A, longest; pinned on top), searches titles and text, and
-  ⋯ pins, renames or deletes. `/home?c=<id>` opens one.
+- **Chats** are saved to the account through **`api/chats.js`** into Firestore `profiles/{uid}/chats/{id}` (server-only;
+  up to 500 chats, 500 messages and ~900 KB each), after every reply, so they're on every device. The sidebar lists them
+  without messages (those load when a chat opens), sorts them (recent, newest, oldest, A–Z, Z–A, longest; pinned on
+  top), searches titles and text, and ⋯ pins, renames or deletes. `/home?c=<id>` opens one. Chats an older version kept
+  in the browser (`experimentai.chats.<uid>`) are imported once, then removed from the browser. Settings → Data & privacy
+  can delete them all; the data download and account deletion include them.
 - **Settings** (profile menu → Settings, or ⌘/Ctrl + ,) has sections: Profile (photo, name, nickname, about you),
   Appearance (theme, text size, greetings, reduce motion), Chat & models (default model/effort, style, reply language,
   custom instructions, Enter vs ⌘/Ctrl+Enter), Memory, Usage (the Usage buttons open it; percentages only, reset

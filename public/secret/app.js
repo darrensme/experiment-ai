@@ -106,12 +106,13 @@ $$('[data-signout]').forEach((b) => b.addEventListener('click', async () => {
   location.replace('/');
 }));
 
-/* ── Chats: saved in this browser (per account) after every reply, listed in the sidebar. Sort them (recent, newest,
-      oldest, A–Z, Z–A, longest; pinned ones stay on top), search titles and text, and use ⋯ to pin, rename or delete. ── */
-const CHAT_LIMIT = 200;
+/* ── Chats: saved to your account (Firebase, through api/chats.js) after every reply, so they're on every device.
+      The sidebar lists them; sort (recent, newest, oldest, A–Z, Z–A, longest; pinned ones stay on top), search titles
+      and text, and ⋯ pins, renames or deletes. A chat's messages load when you open it. ── */
 const SORT_KEY = 'experimentai.chatSort';
-let chats = []; // [{ id, title, messages: [{ role, content }], createdAt, updatedAt, pinned, model }]
-let chatsKey = '';
+// [{ id, title, createdAt, updatedAt, pinned, model, count, text, messages? }] (messages once opened or sent here)
+let chats = [];
+let chatsKey = ''; // where chats used to be kept in this browser; moved to the account once, then removed
 let currentChatId = null;
 const searchBtn = $('[data-search]');
 const searchBox = $('.side-search');
@@ -124,44 +125,62 @@ const titleFrom = (text) => {
   const t = text.replace(/\s+/g, ' ').trim();
   return t.length > 60 ? `${t.slice(0, 57)}…` : t || 'New chat';
 };
-function loadChats(uid) {
+const chatsApi = (action, body = {}) => apiPost('/api/chats', { action, ...body });
+async function loadChats(uid) {
   chatsKey = `experimentai.chats.${uid}`;
-  try { chats = JSON.parse(localStorage.getItem(chatsKey) || '[]').filter((c) => c?.id && Array.isArray(c.messages)); } catch { chats = []; }
+  // chats kept in this browser before they were saved to the account: move them over once
+  try {
+    const old = JSON.parse(localStorage.getItem(chatsKey) || '[]');
+    if (Array.isArray(old) && old.length) {
+      await chatsApi('import', { chats: old });
+      localStorage.removeItem(chatsKey);
+    }
+  } catch {} // try again next time
+  try {
+    chats = (await chatsApi('list')).chats;
+  } catch {
+    $('.chat-empty').textContent = 'Couldn’t load your chats. Refresh to try again.';
+  }
   renderChats();
 }
-// Save; if the browser's storage is full, let go of the oldest unpinned chats until it fits.
-function saveChats() {
-  for (;;) {
-    try { localStorage.setItem(chatsKey, JSON.stringify(chats)); return; } catch {
-      const victim = chats.filter((c) => !c.pinned && c.id !== currentChatId).sort((a, b) => a.updatedAt - b.updatedAt)[0];
-      if (!victim) return;
-      chats = chats.filter((c) => c !== victim);
-    }
-  }
-}
-// The open chat (chat = its messages, kept below) goes into the list: new on the first reply, updated after that.
-function persistChat() {
+// The open chat (chat = its messages, kept below) is saved to your account: new on the first reply, updated after.
+async function persistChat() {
   if (!chatsKey || !chat.length) return;
   const now = Date.now();
   let c = chats.find((x) => x.id === currentChatId);
   if (!c) {
-    c = { id: crypto.randomUUID(), title: titleFrom(chat[0].content), messages: [], createdAt: now, pinned: false };
+    c = { id: crypto.randomUUID(), title: titleFrom(chat[0].content), createdAt: now, pinned: false };
     chats.unshift(c);
     currentChatId = c.id;
     history.replaceState(null, '', `/home?c=${encodeURIComponent(c.id)}`);
   }
   c.messages = chat.map(({ role, content }) => ({ role, content }));
+  c.count = c.messages.length;
+  c.text = c.messages.map((m) => m.content).join(' ').slice(0, 2000);
   c.updatedAt = now;
   c.model = choice.model;
-  const unpinned = chats.filter((x) => !x.pinned).sort((a, b) => b.updatedAt - a.updatedAt);
-  if (chats.length > CHAT_LIMIT) chats = chats.filter((x) => x.pinned || unpinned.indexOf(x) < CHAT_LIMIT);
-  saveChats();
   renderChats();
+  try {
+    const { chat: saved } = await chatsApi('save', { chat: { id: c.id, messages: c.messages, model: c.model } });
+    Object.assign(c, saved);
+    renderChats();
+  } catch (err) {
+    note.textContent = `This chat wasn’t saved: ${err.message}`;
+  }
 }
-function openChat(id) {
+async function openChat(id) {
   const c = chats.find((x) => x.id === id);
   if (!c || streaming) return;
   closeChatMenu();
+  if (!c.messages) {
+    note.textContent = 'Opening chat…';
+    try {
+      c.messages = (await chatsApi('get', { id })).chat.messages;
+    } catch (err) {
+      note.textContent = err.message;
+      return;
+    }
+  }
   currentChatId = id;
   chat.length = 0;
   c.messages.forEach((m) => chat.push({ role: m.role, content: m.content }));
@@ -181,13 +200,14 @@ const SORTS = {
   oldest: (a, b) => a.createdAt - b.createdAt,
   az: (a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base', numeric: true }),
   za: (a, b) => b.title.localeCompare(a.title, undefined, { sensitivity: 'base', numeric: true }),
-  longest: (a, b) => b.messages.length - a.messages.length || b.updatedAt - a.updatedAt,
+  longest: (a, b) => (b.count || 0) - (a.count || 0) || b.updatedAt - a.updatedAt,
 };
 function renderChats() {
   const q = searchInput.value.trim().toLowerCase();
   const sort = SORTS[sortSelect.value] || SORTS.recent;
   const shown = chats
-    .filter((c) => !q || c.title.toLowerCase().includes(q) || c.messages.some((m) => m.content.toLowerCase().includes(q)))
+    .filter((c) => !q || c.title.toLowerCase().includes(q) || (c.text || '').toLowerCase().includes(q)
+      || (c.messages || []).some((m) => m.content.toLowerCase().includes(q)))
     .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || sort(a, b));
   $('.chat-list').replaceChildren(...shown.map(chatRow));
   $('.chat-empty').hidden = shown.length > 0;
@@ -246,7 +266,7 @@ function showChatMenu(c, row, button) {
     return b;
   };
   menu.append(
-    item(c.pinned ? 'Unpin' : 'Pin to top', () => { c.pinned = !c.pinned; saveChats(); renderChats(); }),
+    item(c.pinned ? 'Unpin' : 'Pin to top', () => changeChat(c, { pinned: !c.pinned })),
     item('Rename', () => renameChat(c)),
     item('Delete', () => deleteChat(c), 'danger'),
   );
@@ -268,8 +288,8 @@ function renameChat(c) {
     if (done) return;
     done = true;
     const v = input.value.trim();
-    if (save && v) { c.title = v.slice(0, 80); saveChats(); }
-    renderChats();
+    if (save && v && v !== c.title) changeChat(c, { title: v.slice(0, 80) });
+    else renderChats();
   };
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); finish(true); }
@@ -277,10 +297,28 @@ function renameChat(c) {
   });
   input.addEventListener('blur', () => finish(true));
 }
-function deleteChat(c) {
+// Rename or pin: shown at once, saved to your account (and put back if that fails).
+async function changeChat(c, patch) {
+  const before = { title: c.title, pinned: c.pinned };
+  Object.assign(c, patch);
+  renderChats();
+  try {
+    await chatsApi('update', { id: c.id, ...patch });
+  } catch (err) {
+    Object.assign(c, before);
+    renderChats();
+    note.textContent = err.message;
+  }
+}
+async function deleteChat(c) {
   if (!confirm(`Delete “${c.title}”? This can’t be undone.`)) return;
+  try {
+    await chatsApi('delete', { id: c.id });
+  } catch (err) {
+    note.textContent = err.message;
+    return;
+  }
   chats = chats.filter((x) => x !== c);
-  saveChats();
   if (c.id === currentChatId) $('[data-new-chat]').click();
   else renderChats();
 }
@@ -1505,17 +1543,30 @@ $('[data-signout-all]').addEventListener('click', async () => {
   }
 });
 
-/* Data & privacy: download everything, or clear what this browser keeps. */
+/* Data & privacy: download everything, delete your saved chats, or clear what this browser keeps. */
 const dataMsg = (text) => { $('.data-msg').textContent = text; };
+const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
 function renderLocalSummary() {
-  const n = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
-  $('.local-summary').textContent = `${n(chats.length, 'chat')} and ${n(projects.length, 'project')} are saved in this browser only.`;
+  $('.chats-summary').textContent = `${plural(chats.length, 'chat')} saved to your account, on every device.`;
+  $('[data-delete-chats]').disabled = !chats.length;
+  $('.local-summary').textContent = `${plural(projects.length, 'project')} and a copy of your preferences are kept in this browser.`;
 }
+$('[data-delete-chats]').addEventListener('click', async () => {
+  if (!confirm(`Delete all ${plural(chats.length, 'chat')}? This can’t be undone.`)) return;
+  try {
+    const { deleted } = await chatsApi('delete-all');
+    chats = [];
+    $('[data-new-chat]').click();
+    renderLocalSummary();
+    dataMsg(`Deleted ${plural(deleted, 'chat')}.`);
+  } catch (err) {
+    dataMsg(err.message);
+  }
+});
 $('[data-export]').addEventListener('click', async () => {
   dataMsg('Getting your data…');
   try {
     const data = await apiPost('/api/settings', { action: 'export' });
-    data.chatsInThisBrowser = chats;
     data.projectsInThisBrowser = projects;
     const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
     const a = Object.assign(document.createElement('a'), { href: url, download: `experiment-ai-data-${new Date().toISOString().slice(0, 10)}.json` });
@@ -1523,13 +1574,13 @@ $('[data-export]').addEventListener('click', async () => {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    dataMsg('Downloaded (with the chats saved in this browser).');
+    dataMsg('Downloaded.');
   } catch (err) {
     dataMsg(err.message);
   }
 });
 $('[data-clear-local]').addEventListener('click', () => {
-  if (!confirm('Clear the chats, projects and preferences saved in this browser? Your account, settings and memory stay.')) return;
+  if (!confirm('Clear the projects and preferences kept in this browser? Your chats, settings and memory stay in your account.')) return;
   try {
     Object.keys(localStorage).filter((k) => k.startsWith('experimentai.')).forEach((k) => localStorage.removeItem(k));
   } catch {}
@@ -1859,9 +1910,8 @@ onAuthStateChanged(auth, async (user) => {
   showProfile(user);
   fillSheets(user);
   loadProjects(user.uid);
-  loadChats(user.uid);
   const openId = new URLSearchParams(location.search).get('c'); // /home?c=… opens that saved chat
-  if (openId && chats.some((c) => c.id === openId)) openChat(openId);
+  loadChats(user.uid).then(() => { if (openId && chats.some((c) => c.id === openId)) openChat(openId); });
   loadSettings(user);
   try {
     const welcome = sessionStorage.getItem('experimentai.welcome');

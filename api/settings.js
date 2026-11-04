@@ -8,6 +8,7 @@
 import { HttpError, auth, db, handle, requireUser } from './_shared.js';
 import { requireAccess } from './_ai.js';
 import { readProfile, saveAvatar, saveMemories, saveSettings } from './_profile.js';
+import { chatsOf } from './chats.js';
 
 export default handle(async (req, res) => {
   const user = await requireUser(req);
@@ -31,6 +32,11 @@ export default handle(async (req, res) => {
     const store = db();
     const read = async (c) => (await store.collection(c).doc(user.uid).get()).data() || null;
     const [profile, plan, usage, waitlist] = await Promise.all(['profiles', 'plans', 'usage', 'waitlist'].map(read));
+    const chatDocs = (await chatsOf(user.uid).orderBy('updatedAt', 'desc').get()).docs;
+    const chats = chatDocs.map((d) => {
+      const { text, count, ...rest } = d.data();
+      return { id: d.id, ...rest };
+    });
     res.setHeader('Content-Disposition', 'attachment; filename="experiment-ai-data.json"');
     return res.status(200).json({
       exportedAt: new Date().toISOString(),
@@ -39,8 +45,8 @@ export default handle(async (req, res) => {
         signInMethods: user.providerData.map((p) => p.providerId),
         created: user.metadata.creationTime, lastSignIn: user.metadata.lastSignInTime,
       },
-      settings: profile, plan, usage, waitlist,
-      note: 'Chats and projects are kept in your browser for now, so they are not part of this file.',
+      settings: profile, plan, usage, waitlist, chats,
+      note: 'Projects are kept in your browser for now, so they are not part of this file.',
     });
   }
   if (action === 'signout-all') {
