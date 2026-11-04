@@ -3,19 +3,20 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>About us — Experiment Labs</title>
-  <meta name="description" content="Experiment Labs is a small studio building simple, premium AI tools. Experiment AI is our first." />
+  <title>Your spot — Experiment AI</title>
+  <meta name="description" content="Your place on the Experiment AI waitlist." />
   <!-- Link previews (iMessage, Discord, X, Slack…) -->
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Experiment AI" />
-  <meta property="og:title" content="About us — Experiment Labs" />
-  <meta property="og:description" content="Experiment Labs is a small studio building simple, premium AI tools. Experiment AI is our first." />
-  <meta property="og:url" content="https://experimentai.dev/aboutus" />
+  <meta property="og:title" content="Your spot — Experiment AI" />
+  <meta property="og:description" content="Your place on the Experiment AI waitlist." />
+  <meta property="og:url" content="https://experimentai.dev/home" />
   <meta property="og:image" content="https://experimentai.dev/assets/og.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
   <meta property="og:image:alt" content="Experiment AI — The only AI you will need." />
   <meta name="twitter:card" content="summary_large_image" />
+  <meta name="robots" content="noindex" />
   <meta name="theme-color" content="#3a659b" />
   <link rel="icon" type="image/png" href="assets/potion-orb-pfp-sky-bottle.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -24,7 +25,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body>
+<body class="auth-pending">
   <!-- Sky backdrop (colours sampled from the reference screenshot) -->
   <div class="sky" aria-hidden="true">
     <div class="blob b1"></div>
@@ -51,34 +52,21 @@
 
   <main>
     <section class="page-hero">
-      <img class="page-logo" src="/assets/potion-orb-icon-pfp.png" alt="Experiment Labs logo" />
-      <h1>About <em class="serif gold">us</em></h1>
-      <p class="lede">We’re Experiment Labs, a small studio building simple, premium AI tools for everyone.</p>
+      <img class="page-logo" src="/assets/potion-orb-pfp-sky-bottle.png" alt="" />
+      <h1>You’re <em class="serif gold">in</em><span class="home-name"></span>.</h1>
+      <p class="lede">Thanks for joining the Experiment AI waitlist.</p>
     </section>
 
     <section class="inner">
-      <div class="about-card glass reveal">
-        <p><strong>Experiment Labs</strong> started with a simple frustration: the best AI models live in different apps, each with its own subscription, its own limits and its own strengths. Switching between them gets old fast.</p>
-        <p>So we’re building <strong>Experiment AI</strong>: one place where Grok, Claude, Gemini, ChatGPT and Meta Muse work together. Pick any model, any time. Plan your week, connect your tools, make images and write code, all in one chat.</p>
-        <p>We sweat the details. Everything we make should feel simple to use and premium to hold, and we never stop experimenting to make it better. It’s right there in the name.</p>
-        <p>Experiment AI is inspired by <a href="https://hark.com" target="_blank" rel="noopener">Hark</a> and its vision of one personal interface for all of AI.</p>
-      </div>
-      <div class="values">
-        <article class="value glass reveal">
-          <span class="f-num">01</span>
-          <h3><em class="serif blue">Simple</em> first</h3>
-          <p>Great tools get out of the way. One chat, every major model, no settings maze.</p>
-        </article>
-        <article class="value glass reveal">
-          <span class="f-num">02</span>
-          <h3><em class="serif gold">Premium</em> always</h3>
-          <p>Every detail is considered, from the first pixel you see to the last reply you get.</p>
-        </article>
-        <article class="value glass reveal">
-          <span class="f-num">03</span>
-          <h3>Always <em class="serif blue">experimenting</em></h3>
-          <p>We try things, learn fast and keep improving. That’s the whole idea.</p>
-        </article>
+      <div class="place-card glass reveal">
+        <p class="label">Your place in line</p>
+        <p class="place-number"><em class="serif gold">#</em><span class="place">…</span></p>
+        <p class="place-ahead" aria-live="polite"></p>
+        <p class="place-copy">We’ll email <strong class="home-email">you</strong> the moment you get early access. No need to check back. It’ll land in your inbox.</p>
+        <div class="mail-actions">
+          <a class="btn btn-dark btn-lg magnetic" href="/pricing">See pricing <span class="arrow">→</span></a>
+          <button type="button" class="btn btn-ghost btn-lg magnetic" data-page-signout>Sign out</button>
+        </div>
       </div>
     </section>
   </main>
@@ -102,6 +90,7 @@
       <div class="step step-join">
         <h3 id="auth-title">Join the <em class="serif gold">waitlist</em></h3>
         <p class="modal-sub">Create your account now and you’ll be first in line when Experiment AI launches. We’ll only email you about the launch.</p>
+        <label class="agree"><input type="checkbox" name="agree" /><span>I agree to the <a href="/tos" target="_blank" rel="noopener">Terms of Service</a> and <a href="/policy" target="_blank" rel="noopener">Privacy Policy</a>.</span></label>
         <button type="button" class="btn btn-lg full btn-google" data-provider="google">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.46a5.52 5.52 0 0 1-2.4 3.62v3h3.88c2.27-2.09 3.58-5.17 3.58-8.81z"/><path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.94-2.91l-3.88-3.01c-1.07.72-2.45 1.15-4.06 1.15-3.12 0-5.77-2.11-6.71-4.95H1.28v3.11A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.29 14.28A7.2 7.2 0 0 1 4.91 12c0-.79.14-1.56.38-2.28V6.61H1.28A12 12 0 0 0 0 12c0 1.94.46 3.77 1.28 5.39l4.01-3.11z"/><path fill="#EA4335" d="M12 4.77c1.76 0 3.34.61 4.59 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.28 6.61l4.01 3.11C6.23 6.88 8.88 4.77 12 4.77z"/></svg>
           Continue with Google
@@ -114,7 +103,6 @@
           <button class="btn btn-dark btn-lg full" type="submit">Join the waitlist</button>
         </form>
         <p class="fine">Already joined? Enter the same email and password to check your spot.</p>
-        <p class="fine">By joining, you agree to our <a href="/tos">Terms</a> and <a href="/policy">Privacy Policy</a>.</p>
       </div>
 
       <div class="step step-verify">

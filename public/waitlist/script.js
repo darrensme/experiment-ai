@@ -116,16 +116,16 @@ import {
   }
 
   const DEMOS = {
-    async schedule(el) {
-      const gym = $('.e3', el);
-      el.classList.remove('on', 'moved');
-      gym.style.setProperty('--c', 4);
-      await sleep(300);
-      el.classList.add('on');
-      await sleep(1800);
-      gym.style.setProperty('--c', 3);
-      el.classList.add('moved');
-      await sleep(3600);
+    async compare(el) {
+      const cols = $$('.cmp-col', el);
+      el.classList.remove('picked');
+      cols.forEach((c) => c.classList.remove('on', 'best'));
+      await sleep(400);
+      for (const c of cols) { c.classList.add('on'); await sleep(520); }
+      await sleep(900);
+      cols[0].classList.add('best');
+      el.classList.add('picked');
+      await sleep(3400);
     },
 
     async tools(el) {
@@ -301,6 +301,14 @@ import {
     await finish({ user: auth.currentUser, providerId: 'password' });
   }
 
+  // Terms + Privacy: the box must be ticked before joining (Google or email).
+  const agreeBox = $('input[name="agree"]', modal);
+  const askToAgree = () => {
+    say('Tick the box to agree to the Terms of Service and Privacy Policy first.', true);
+    agreeBox?.focus();
+  };
+  agreeBox?.addEventListener('change', () => { if (agreeBox.checked && msg.classList.contains('err')) say(''); });
+
   const google = new GoogleAuthProvider();
   const form = $('.email-form', modal);
   const verifyForm = $('.verify-form', modal);
@@ -312,6 +320,7 @@ import {
   };
 
   $('[data-provider="google"]', modal).addEventListener('click', async () => {
+    if (!agreeBox?.checked) return askToAgree();
     lock(true);
     say('Opening Google…');
     try {
@@ -333,6 +342,7 @@ import {
     const password = form.password.value;
     if (!/^\S+@\S+\.\S+$/.test(email)) return say('Enter a valid email.', true);
     if (password.length < 8) return say('Password needs at least 8 characters.', true);
+    if (!agreeBox?.checked) return askToAgree();
 
     lock(true);
     say('Saving your spot…');
