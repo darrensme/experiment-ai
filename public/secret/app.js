@@ -362,7 +362,8 @@ composer.addEventListener('submit', (e) => {
     currentId = chat.id;
   }
   const files = attachments.flatMap((a) => a.files);
-  const msg = { text, at: now, model: choice.model, effort: choice.effort, attachments: attachments.map((a) => ({ kind: a.kind, name: a.name, count: a.files.length })), files };
+  const usedModel = modelById(choice.model);
+  const msg = { text, at: now, model: choice.model, kind: usedModel.kind, effort: usedModel.kind === 'chat' ? choice.effort : null, attachments: attachments.map((a) => ({ kind: a.kind, name: a.name, count: a.files.length })), files };
   chat.messages.push(msg);
   chat.model = choice.model;
   chat.effort = choice.effort;
@@ -383,52 +384,77 @@ composer.addEventListener('submit', (e) => {
 });
 
 /* ── Model and effort picker ── */
-// Logos are the AIs' own marks (Claude, GPT, Gemini, Muse, Grok), not the companies'.
-const AIS = {
+// Five brands only, each shown with its AI's own mark (not the company's). Ids are Vercel AI Gateway ids.
+const BRANDS = {
   claude: { name: 'Claude', logo: '/assets/ai/claude-color.svg' },
   gpt: { name: 'GPT', logo: '/assets/ai/openai.svg' },
   gemini: { name: 'Gemini', logo: '/assets/ai/gemini-color.svg' },
   muse: { name: 'Muse', logo: '/assets/ai/muse-color.svg' },
   grok: { name: 'Grok', logo: '/assets/ai/grok.svg' },
 };
-// efforts: which effort levels the model offers (default Low / Medium / High)
+const KINDS = [['chat', 'Chat'], ['image', 'Image'], ['video', 'Video']];
+// efforts (chat only): which effort levels the model offers (default Low / Medium / High)
 const FLASH = ['low', 'high'];
 const MODELS = [
-  { id: 'claude-fable-5-1', ai: 'claude', name: 'Claude Fable 5.1', note: 'Most capable, for long-running work' },
-  { id: 'claude-opus-5-5', ai: 'claude', name: 'Claude Opus 5.5', note: 'Deep reasoning and coding' },
-  { id: 'claude-sonnet-5-5', ai: 'claude', name: 'Claude Sonnet 5.5', note: 'Smart and fast, a great everyday pick' },
-  { id: 'claude-haiku-5-5', ai: 'claude', name: 'Claude Haiku 5.5', note: 'Fastest Claude' },
-  { id: 'gpt-6-astra', ai: 'gpt', name: 'GPT-6 Astra', note: 'Complex reasoning and coding' },
-  { id: 'gpt-6.1-sol', ai: 'gpt', name: 'GPT-6.1 Sol', note: 'Balances intelligence and cost' },
-  { id: 'gpt-6.1-terra', ai: 'gpt', name: 'GPT-6.1 Terra', note: 'Fast, good at visuals and writing' },
-  { id: 'gpt-6-luna', ai: 'gpt', name: 'GPT-6 Luna', note: 'Quick and low-cost' },
-  { id: 'gemini-4-argon', ai: 'gemini', name: 'Gemini 4 Argon', note: "Google's newest flagship" },
-  { id: 'gemini-3.1-pro-preview', ai: 'gemini', name: 'Gemini 3.1 Pro', note: 'Strong reasoning, long documents' },
-  { id: 'gemini-3.8-flash', ai: 'gemini', name: 'Gemini 3.8 Flash', note: 'Fast and capable', efforts: FLASH },
-  { id: 'gemini-3.5-flash-lite', ai: 'gemini', name: 'Gemini 3.5 Flash-Lite', note: 'Fastest, lowest cost', efforts: FLASH },
-  { id: 'muse-wonder-1.0', ai: 'muse', name: 'Muse Wonder', note: "Meta's most capable" },
-  { id: 'muse-spark-1.3', ai: 'muse', name: 'Muse Spark 1.3', note: 'Quick everyday model' },
-  { id: 'grok-4.7', ai: 'grok', name: 'Grok 4.7', note: 'Coding, agents and knowledge work' },
-  { id: 'grok-4.6', ai: 'grok', name: 'Grok 4.6', note: 'The previous Grok' },
+  // chat
+  { id: 'anthropic/claude-fable-5.1', brand: 'claude', kind: 'chat', name: 'Claude Fable 5.1', note: 'Most capable, for long-running work' },
+  { id: 'anthropic/claude-opus-5.5', brand: 'claude', kind: 'chat', name: 'Claude Opus 5.5', note: 'Deep reasoning and coding' },
+  { id: 'anthropic/claude-sonnet-5.5', brand: 'claude', kind: 'chat', name: 'Claude Sonnet 5.5', note: 'Smart and fast, a great everyday pick' },
+  { id: 'anthropic/claude-haiku-5.5', brand: 'claude', kind: 'chat', name: 'Claude Haiku 5.5', note: 'Fastest Claude' },
+  { id: 'openai/gpt-6-astra', brand: 'gpt', kind: 'chat', name: 'GPT-6 Astra', note: 'Complex reasoning and coding' },
+  { id: 'openai/gpt-6.1-sol', brand: 'gpt', kind: 'chat', name: 'GPT-6.1 Sol', note: 'Balances intelligence and cost' },
+  { id: 'openai/gpt-6.1-terra', brand: 'gpt', kind: 'chat', name: 'GPT-6.1 Terra', note: 'Fast, good at visuals and writing' },
+  { id: 'openai/gpt-6-luna', brand: 'gpt', kind: 'chat', name: 'GPT-6 Luna', note: 'Quick and low-cost' },
+  { id: 'google/gemini-4-argon', brand: 'gemini', kind: 'chat', name: 'Gemini 4 Argon', note: "Google's newest flagship" },
+  { id: 'google/gemini-3.1-pro-preview', brand: 'gemini', kind: 'chat', name: 'Gemini 3.1 Pro', note: 'Strong reasoning, long documents' },
+  { id: 'google/gemini-3.8-flash', brand: 'gemini', kind: 'chat', name: 'Gemini 3.8 Flash', note: 'Fast and capable', efforts: FLASH },
+  { id: 'google/gemini-3.5-flash-lite', brand: 'gemini', kind: 'chat', name: 'Gemini 3.5 Flash-Lite', note: 'Fastest, lowest cost', efforts: FLASH },
+  { id: 'meta/muse-wonder-1.0', brand: 'muse', kind: 'chat', name: 'Muse Wonder', note: "Meta's most capable" },
+  { id: 'meta/muse-spark-1.3', brand: 'muse', kind: 'chat', name: 'Muse Spark 1.3', note: 'Quick everyday model' },
+  { id: 'spacexai/grok-4.7', brand: 'grok', kind: 'chat', name: 'Grok 4.7', note: 'Coding, agents and knowledge work' },
+  { id: 'spacexai/grok-4.6', brand: 'grok', kind: 'chat', name: 'Grok 4.6', note: 'The previous Grok' },
+  // image
+  { id: 'openai/gpt-image-2.5-flare', brand: 'gpt', kind: 'image', name: 'GPT Image 2.5 Flare', note: 'Fast, high-quality everyday images' },
+  { id: 'openai/gpt-image-2.5-sunburst', brand: 'gpt', kind: 'image', name: 'GPT Image 2.5 Sunburst', note: 'Precise image editing' },
+  { id: 'openai/gpt-image-2', brand: 'gpt', kind: 'image', name: 'GPT Image 2', note: 'Fast, high-quality generation and editing' },
+  { id: 'openai/gpt-image-1.5', brand: 'gpt', kind: 'image', name: 'GPT Image 1.5', note: 'Follows instructions closely' },
+  { id: 'google/gemini-nano-banana-2.1', brand: 'gemini', kind: 'image', name: 'Nano Banana 2.1', note: 'Balance of price and quality' },
+  { id: 'google/gemini-3.1-flash-image', brand: 'gemini', kind: 'image', name: 'Nano Banana 2', note: 'Image understanding and generation' },
+  { id: 'google/gemini-3.1-flash-lite-image', brand: 'gemini', kind: 'image', name: 'Nano Banana 2 Lite', note: "Google's fastest image model" },
+  { id: 'meta/muse-image-1.0', brand: 'muse', kind: 'image', name: 'Muse Image', note: 'Reasons before it draws' },
+  { id: 'spacexai/grok-imagine-image-2.0', brand: 'grok', kind: 'image', name: 'Grok Imagine Image 2.0', note: 'Newest Grok images' },
+  { id: 'spacexai/grok-imagine-image', brand: 'grok', kind: 'image', name: 'Grok Imagine Image', note: 'High-quality images from text' },
+  // video
+  { id: 'google/veo-3.1-generate-001', brand: 'gemini', kind: 'video', name: 'Veo 3.1', note: 'High-fidelity video up to 4K' },
+  { id: 'google/veo-3.1-fast-generate-001', brand: 'gemini', kind: 'video', name: 'Veo 3.1 Fast', note: 'Faster Veo' },
+  { id: 'google/veo-3.1-lite-generate-001', brand: 'gemini', kind: 'video', name: 'Veo 3.1 Lite', note: 'Efficient, lower cost' },
+  { id: 'spacexai/grok-imagine-video-1.5', brand: 'grok', kind: 'video', name: 'Grok Imagine Video 1.5', note: 'Newest Grok video' },
+  { id: 'spacexai/grok-imagine-video-1.5-lite', brand: 'grok', kind: 'video', name: 'Grok Imagine Video 1.5 Lite', note: 'Lightweight, text or image to video' },
 ];
 const EFFORT_LABEL = { low: 'Low', medium: 'Medium', high: 'High' };
+const KIND_LABEL = Object.fromEntries(KINDS);
+const PLACEHOLDER = { chat: 'Message Experiment AI', image: 'Describe an image to make', video: 'Describe a video to make' };
 const modelById = (id) => MODELS.find((m) => m.id === id) || null;
-const effortsFor = (m) => m.efforts || ['low', 'medium', 'high'];
-// keep the effort if this model has it, otherwise the closest one it does have
+const modelsFor = (kind, brand) => MODELS.filter((m) => m.kind === kind && (!brand || m.brand === brand));
+const brandsFor = (kind) => Object.keys(BRANDS).filter((b) => modelsFor(kind, b).length);
+const effortsFor = (m) => (m.kind === 'chat' ? m.efforts || ['low', 'medium', 'high'] : []);
+// keep the effort if this model has it, otherwise the closest one it does have (image/video keep it for later)
 const fitEffort = (m, effort) => {
   const list = effortsFor(m);
-  if (list.includes(effort)) return effort;
+  if (!list.length || list.includes(effort)) return effort;
   return list.includes('medium') && effort !== 'max' ? 'medium' : 'high';
 };
 const shortName = (m) => m.name.replace(/^Claude /, '');
 const modelMenu = $('model-menu');
 const modelBtn = $('model-btn');
 
-let choice = { model: 'claude-sonnet-5-5', effort: 'medium' };
+let choice = { model: 'anthropic/claude-sonnet-5.5', effort: 'medium' };
 try {
   const c = JSON.parse(localStorage.getItem('ea.model'));
   if (c && modelById(c.model)) choice = { model: c.model, effort: fitEffort(modelById(c.model), c.effort) };
 } catch {}
+// which tab and brand the menu is showing (starts at the chosen model)
+let menuView = { kind: 'chat', brand: 'claude' };
 
 function setChoice(next) {
   const merged = { ...choice, ...next };
@@ -439,28 +465,53 @@ function setChoice(next) {
 
 function renderModel() {
   const m = modelById(choice.model);
-  $('model-logo').src = AIS[m.ai].logo;
+  const chat = m.kind === 'chat';
+  $('model-logo').src = BRANDS[m.brand].logo;
   $('model-name').textContent = shortName(m);
-  $('model-effort').textContent = EFFORT_LABEL[choice.effort];
-  modelBtn.title = `${m.name} · ${EFFORT_LABEL[choice.effort]} effort`;
+  $('model-effort').textContent = chat ? EFFORT_LABEL[choice.effort] : KIND_LABEL[m.kind];
+  input.placeholder = PLACEHOLDER[m.kind];
+  modelBtn.title = chat ? `${m.name} · ${EFFORT_LABEL[choice.effort]} effort` : `${m.name} · ${KIND_LABEL[m.kind]}`;
   modelBtn.setAttribute('aria-label', `Model: ${modelBtn.title}`);
   if (!modelMenu.hidden) renderModelMenu();
 }
 
-function renderModelMenu() {
-  const groups = Object.entries(AIS).map(([key, ai]) => el('div', { class: 'model-group', role: 'group', 'aria-label': ai.name },
-    el('div', { class: 'model-group-head' }, el('img', { src: ai.logo, alt: '', width: '16', height: '16' }), ai.name),
-    MODELS.filter((m) => m.ai === key).map((m) => el('button', {
-      type: 'button', class: 'menu-item model-opt', role: 'menuitemradio', 'aria-checked': String(m.id === choice.model),
-      title: m.note, onclick: () => setChoice({ model: m.id }),
-    },
-      el('span', { class: 'grow model-opt-name' }, m.name),
-      m.id === choice.model && icon('check')))));
-  fill($('model-groups'), groups);
+function showMenuView(kind, brand) {
+  const brands = brandsFor(kind);
+  menuView = { kind, brand: brands.includes(brand) ? brand : brands[0] };
+  renderModelMenu();
+}
 
-  const levels = effortsFor(modelById(choice.model));
-  $('effort-seg').style.setProperty('--n', levels.length);
-  $('effort-seg').style.setProperty('--i', levels.indexOf(choice.effort)); // slides the highlight
+function renderModelMenu() {
+  const { kind, brand } = menuView;
+  const m = modelById(choice.model);
+
+  // Chat / Image / Video
+  const ki = KINDS.findIndex(([k]) => k === kind);
+  $('kind-tabs').style.setProperty('--i', ki);
+  fill($('kind-tabs'), KINDS.map(([k, label]) => el('button', {
+    type: 'button', class: 'kind-tab', role: 'tab', 'aria-selected': String(k === kind),
+    onclick: () => showMenuView(k, brand),
+  }, label)));
+
+  // brands on the left (only those with models of this kind), their models on the right
+  fill($('brand-col'), brandsFor(kind).map((b) => el('button', {
+    type: 'button', class: 'brand-opt', 'aria-pressed': String(b === brand),
+    onclick: () => showMenuView(kind, b),
+    onpointerenter: (e) => { if (e.pointerType === 'mouse' && b !== menuView.brand) showMenuView(kind, b); },
+  }, el('img', { src: BRANDS[b].logo, alt: '', width: '16', height: '16' }), el('span', { class: 'grow' }, BRANDS[b].name),
+    m.brand === b && m.kind === kind && el('span', { class: 'brand-dot', 'aria-hidden': 'true' }))));
+  fill($('model-col'), modelsFor(kind, brand).map((x) => el('button', {
+    type: 'button', class: 'menu-item model-opt', role: 'menuitemradio', 'aria-checked': String(x.id === choice.model),
+    title: x.note, onclick: () => setChoice({ model: x.id }),
+  },
+    el('span', { class: 'grow model-opt-name' }, x.name),
+    x.id === choice.model && icon('check'))));
+
+  // effort: only for chat models
+  const levels = effortsFor(m);
+  $('effort-box').hidden = !levels.length;
+  $('effort-seg').style.setProperty('--n', levels.length || 1);
+  $('effort-seg').style.setProperty('--i', Math.max(0, levels.indexOf(choice.effort))); // slides the highlight
   fill($('effort-seg'), levels.map((k) => el('button', {
     type: 'button', class: 'effort-opt', role: 'radio', 'aria-checked': String(k === choice.effort),
     onclick: () => setChoice({ effort: k }),
@@ -470,11 +521,12 @@ function renderModelMenu() {
 const modelMenuOpen = () => isShown(modelMenu);
 function openModelMenu() {
   closeMenu();
+  const m = modelById(choice.model);
+  menuView = { kind: m.kind, brand: m.brand }; // open on the chosen model's tab and brand
   renderModelMenu();
   showPop(modelMenu);
   modelBtn.setAttribute('aria-expanded', 'true');
-  placeMenu(modelMenu, 330); // compact: the list scrolls
-  modelMenu.querySelector('[aria-checked="true"]')?.scrollIntoView({ block: 'nearest' });
+  placeMenu(modelMenu, 360);
 }
 function closeModelMenu() {
   hidePop(modelMenu);
