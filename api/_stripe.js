@@ -18,40 +18,29 @@ export const publishableKey = () => {
   return key;
 };
 
-/* ── Prices in US cents. Yearly is 10 months' price (2 months free), as on /pricing. ── */
+/* ── Plans and their Stripe prices (made in the Stripe Dashboard; live mode). Monthly $10/$20/$100/$200; yearly is
+      10 months' price (2 months free), as on /pricing. Price IDs aren't secret. ── */
 export const PAID = { light: 1000, pro: 2000, 'max-5x': 10000, 'max-10x': 20000 };
-const NAMES = { light: 'Light', pro: 'Pro', 'max-5x': 'Max 5×', 'max-10x': 'Max 10×' };
 export const BILLINGS = ['monthly', 'yearly'];
-const lookupKey = (plan, billing) => `experimentai_${plan}_${billing}`;
+export const PRICES = {
+  light: { monthly: 'price_1UWcDtBgLtESXgVqieSCaNQg', yearly: 'price_1UWcEOBgLtESXgVqcOsxGcHa' },
+  pro: { monthly: 'price_1UWcErBgLtESXgVqQ0Tz2Lbm', yearly: 'price_1UWcF2BgLtESXgVq4PoGmq9q' },
+  'max-5x': { monthly: 'price_1UWcFiBgLtESXgVqexKpGEGS', yearly: 'price_1UWcG6BgLtESXgVqYSgx2LEn' },
+  'max-10x': { monthly: 'price_1UWcGWBgLtESXgVqVY6twGd6', yearly: 'price_1UWcGiBgLtESXgVqbStq7PCv' },
+};
+const BY_PRICE = new Map(Object.entries(PRICES).flatMap(([plan, b]) => Object.entries(b).map(([billing, id]) => [id, { plan, billing }])));
 
-// The Stripe price for a plan, found by its lookup key; made (with its product) the first time it's needed.
-const priceCache = new Map();
 export async function priceFor(plan, billing) {
-  const key = lookupKey(plan, billing);
-  if (priceCache.has(key)) return priceCache.get(key);
-  const s = stripe();
-  let price = (await s.prices.list({ lookup_keys: [key], active: true, limit: 1 })).data[0];
-  if (!price) {
-    const productId = `experimentai_${plan.replace('-', '_')}`;
-    await s.products.retrieve(productId).catch(async (err) => {
-      if (err?.statusCode !== 404) throw err;
-      await s.products.create({ id: productId, name: `Experiment AI ${NAMES[plan]}`, metadata: { plan } })
-        .catch((e) => { if (e?.code !== 'resource_already_exists') throw e; });
-    });
-    price = await s.prices.create({
-      product: productId, currency: 'usd', lookup_key: key, transfer_lookup_key: true,
-      unit_amount: billing === 'yearly' ? PAID[plan] * 10 : PAID[plan],
-      recurring: { interval: billing === 'yearly' ? 'year' : 'month' },
-      metadata: { plan, billing },
-    });
-  }
-  priceCache.set(key, price.id);
-  return price.id;
+  const id = PRICES[plan]?.[billing];
+  if (!id) throw new HttpError(400, 'That plan isn’t available.');
+  return id;
 }
 
-// Which plan and billing a subscription is on, from its price's lookup key.
+// Which plan and billing a subscription is on, from its price ID (or, for older test subscriptions, the lookup key).
 export function planOfSubscription(sub) {
   const price = sub.items?.data?.[0]?.price;
+  const known = BY_PRICE.get(price?.id);
+  if (known) return known;
   const m = /^experimentai_(.+)_(monthly|yearly)$/.exec(price?.lookup_key || '');
   const plan = m?.[1] || price?.metadata?.plan;
   return { plan: plan in PAID ? plan : null, billing: m?.[2] || price?.metadata?.billing || null };

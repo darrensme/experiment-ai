@@ -118,7 +118,7 @@ Upgrade / See plans → pick a plan → Stripe's checkout opens **inside the pla
 | `api/checkout-status.js` | Back from checkout: confirms the session belongs to this person and writes their plan. |
 | `api/stripe-webhook.js` | Renewals, changes, failed payments and cancellations keep `plans/{uid}` in step. |
 | `api/billing-portal.js` | "Manage billing" in Settings and the Free card: Stripe's billing page (cancel at period end, card, invoices). |
-| `api/_stripe.js` | Prices and syncing. Products and prices are **created in Stripe automatically** on first use (lookup keys `experimentai_<plan>_<monthly|yearly>`): $10/$20/$100/$200 a month, yearly = 10 months. |
+| `api/_stripe.js` | Prices and syncing. `PRICES` holds the eight live price IDs made in the Stripe Dashboard (Light, Pro, Max 5×, Max 10×; monthly $10/$20/$100/$200, yearly = 10 months). To change a price, make a new one in Stripe and swap its ID here. |
 
 Deleting an account cancels its subscription in Stripe first. `/api/usage` re-checks a paid plan with Stripe every 6 hours,
 in case a webhook is missed.

@@ -1,6 +1,6 @@
 {
   "outputDirectory": "public",
-  "cleanUrls": true,
+  "cleanUrls": false,
   "trailingSlash": false,
   "functions": {
     "api/chat.js": {
@@ -17,6 +17,11 @@
       "source": "/waitlist/:path*",
       "destination": "/",
       "permanent": false
+    },
+    {
+      "source": "/:page([^/.]+)\\.html",
+      "destination": "/:page",
+      "permanent": true
     }
   ],
   "rewrites": [
