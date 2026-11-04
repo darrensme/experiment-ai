@@ -336,12 +336,12 @@ composer.addEventListener('submit', (e) => {
 });
 
 /* ── Model and effort picker ── */
-// Logos are the AIs' own marks (Claude, GPT, Gemini, Meta AI/Muse, Grok), not the companies'.
+// Logos are the AIs' own marks (Claude, GPT, Gemini, Muse, Grok), not the companies'.
 const AIS = {
   claude: { name: 'Claude', logo: '/assets/ai/claude-color.svg' },
   gpt: { name: 'GPT', logo: '/assets/ai/openai.svg' },
   gemini: { name: 'Gemini', logo: '/assets/ai/gemini-color.svg' },
-  muse: { name: 'Muse', logo: '/assets/ai/metaai-color.svg' },
+  muse: { name: 'Muse', logo: '/assets/ai/muse-color.svg' },
   grok: { name: 'Grok', logo: '/assets/ai/grok.svg' },
 };
 // efforts: which effort levels the model offers (default Low / Medium / High)
