@@ -1,8 +1,8 @@
-// Experiment AI app (/home): signed-in only. Greeting by time of day, sidebar with chats, search and profile.
-// The AI isn't connected yet, so there are no chats to list.
+// Experiment AI app (/home): signed-in only. Greeting, sidebar with saved chats (sortable), projects and profile, the
+// chat itself, and Settings (profile, appearance, chat & models, memory, usage, billing, account, data, …).
 import { auth, db } from './firebase.js';
 import {
-  onAuthStateChanged, signOut, updateProfile, verifyBeforeUpdateEmail,
+  onAuthStateChanged, sendPasswordResetEmail, signOut, updateProfile, verifyBeforeUpdateEmail,
 } from 'https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js';
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -12,29 +12,77 @@ const app = document.body;
 // Google already verifies its emails; email + password accounts verify with our code (same rule as the website).
 const isVerified = (user) => user.emailVerified || user.providerData.some((p) => p.providerId === 'google.com');
 
-/* ── Greeting: "Good evening, Darren" in the visitor's own time zone ── */
-const partOfDay = (h) => (h < 5 ? 'Up late' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : h < 22 ? 'Good evening' : 'Up late');
-const firstName = (user) => (user.displayName || '').trim().split(/\s+/)[0] || '';
+/* ── Your settings (Settings panel). Saved on the server (api/settings.js); the look-and-feel ones are also kept in
+      this browser so the page opens with them (the script in <head> applies theme, text size and reduced motion). ── */
+const PREFS_KEY = 'experimentai.prefs';
+const DEFAULT_PREFS = {
+  nickname: '', about: '', instructions: '', style: 'balanced', language: '', defaultModel: '', defaultEffort: '',
+  memoryDefault: true, theme: 'auto', textSize: 'default', sendKey: 'enter', reduceMotion: false, greetings: true,
+};
+let prefs = { ...DEFAULT_PREFS };
+try { Object.assign(prefs, JSON.parse(localStorage.getItem(PREFS_KEY) || '{}')); } catch {}
+let avatarUrl = null; // your uploaded picture (a data URL), if any
+let memories = []; // [{ id, text, at }]
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+$$('[data-mod-key]').forEach((el) => { if (!el.textContent.trim() || el.textContent.trim() === ',') el.prepend(isMac ? '⌘' : 'Ctrl'); });
 
+/* ── Greeting: the logo, then a line picked once per visit: by time of day, by weekday, or just for fun.
+      "How are you today, Darren?", "Welcome back, Darren", "Up late, Darren?"… Off in Settings → plain "Good evening". ── */
+const partOfDay = (h) => (h < 5 ? 'Up late' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : h < 22 ? 'Good evening' : 'Up late');
+const bucketOf = (h) => (h < 5 ? 'late' : h < 12 ? 'morning' : h < 17 ? 'afternoon' : h < 22 ? 'evening' : 'late');
+const firstName = (user) => (user.displayName || '').trim().split(/\s+/)[0] || '';
+const callName = (user) => (prefs.nickname || '').trim() || firstName(user);
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+// [before the name, after the name]; the name (if any) goes between, after a comma.
+const GREETINGS = {
+  any: [['How are you today', '?'], ['Welcome back', ''], ['Good to see you', ''], ['Ready to experiment', '?'],
+    ['What are we making today', '?'], ['Let’s brew something good', ''], ['Back for more', '?'], ['What’s on your mind', '?'],
+    ['Five AIs, standing by', ''], ['Hey there', '']],
+  morning: [['Good morning', ''], ['Rise and shine', ''], ['Morning', '. Coffee first?']],
+  afternoon: [['Good afternoon', ''], ['How’s the day going', '?'], ['Afternoon', '. What’s next?']],
+  evening: [['Good evening', ''], ['Evening', '. What are we building?'], ['Winding down', '?']],
+  late: [['Up late', '?'], ['Burning the midnight oil', '?'], ['Hey, night owl', '']],
+};
+const SUBLINES = [
+  'Claude, ChatGPT, Gemini, Grok and Muse are ready when you are.', 'Ask anything. Pick any model.',
+  'One question, five brilliant minds.', 'Your ideas, every AI.', 'Start typing. We’ll handle the rest.',
+];
+const pick = (list) => list[Math.floor(Math.random() * list.length)];
+let greeting = null; // { bucket, parts, sub }, kept for the visit so it doesn't change every minute
 function greet(user) {
-  $('.greet-time').textContent = partOfDay(new Date().getHours());
-  const name = firstName(user);
+  const now = new Date();
+  const bucket = bucketOf(now.getHours());
+  if (!greeting || greeting.bucket !== bucket) {
+    const day = DAYS[now.getDay()];
+    const pool = [...GREETINGS.any, ...GREETINGS[bucket], ...GREETINGS[bucket], [`Happy ${day}`, '']];
+    if (day === 'Friday') pool.push(['Almost the weekend', '!']);
+    if (day === 'Monday') pool.push(['New week, new ideas', '']);
+    greeting = { bucket, parts: pick(pool), sub: pick(SUBLINES) };
+  }
+  const [before, after] = prefs.greetings ? greeting.parts : [partOfDay(now.getHours()), ''];
+  const name = callName(user);
+  $('.greet-a').textContent = before;
   $('.greet-name').textContent = name;
   $('.greet-name-wrap').hidden = !name;
+  $('.greet-b').textContent = after;
+  $('.greet-sub').textContent = prefs.greetings ? greeting.sub : '';
 }
 
-/* ── Profile, pinned to the bottom of the sidebar ── */
+/* ── Profile, pinned to the bottom of the sidebar (and the big one in Settings → Profile) ── */
 function showProfile(user) {
   const name = (user.displayName || '').trim() || user.email?.split('@')[0] || 'You';
   $('.profile-name').textContent = name;
   $('.profile-email').textContent = user.email || '';
-  $('.avatar-initial').textContent = name[0].toUpperCase();
-  const img = $('.avatar img');
-  if (user.photoURL) {
+  const photo = avatarUrl || user.photoURL || '';
+  $$('.avatar').forEach((box) => {
+    $('.avatar-initial', box).textContent = name[0].toUpperCase();
+    const img = $('img', box);
     img.onload = () => { img.hidden = false; };
     img.onerror = () => { img.hidden = true; };
-    img.src = user.photoURL;
-  }
+    if (photo) img.src = photo;
+    else { img.hidden = true; img.removeAttribute('src'); }
+  });
+  $('[data-avatar-remove]').hidden = !avatarUrl;
 }
 
 const profileBtn = $('.profile-btn');
@@ -53,29 +101,194 @@ const setMenu = (open) => {
 profileBtn.addEventListener('click', () => setMenu(profileMenu.hidden));
 learnMore.addEventListener('click', () => setLearn(learnList.hidden));
 document.addEventListener('click', (e) => { if (!e.target.closest('.profile')) setMenu(false); });
-$('[data-signout]').addEventListener('click', async () => {
+$$('[data-signout]').forEach((b) => b.addEventListener('click', async () => {
   await signOut(auth);
   location.replace('/');
-});
+}));
 
-/* ── Chats: listed newest first and filtered by the search box. Empty until the AI is connected. ── */
-const chats = [];
+/* ── Chats: saved in this browser (per account) after every reply, listed in the sidebar. Sort them (recent, newest,
+      oldest, A–Z, Z–A, longest; pinned ones stay on top), search titles and text, and use ⋯ to pin, rename or delete. ── */
+const CHAT_LIMIT = 200;
+const SORT_KEY = 'experimentai.chatSort';
+let chats = []; // [{ id, title, messages: [{ role, content }], createdAt, updatedAt, pinned, model }]
+let chatsKey = '';
+let currentChatId = null;
 const searchBtn = $('[data-search]');
 const searchBox = $('.side-search');
 const searchInput = $('#chat-search');
+const sortSelect = $('.chat-sort');
+try { if (localStorage.getItem(SORT_KEY)) sortSelect.value = localStorage.getItem(SORT_KEY); } catch {}
+if (!sortSelect.value) sortSelect.value = 'recent';
 
+const titleFrom = (text) => {
+  const t = text.replace(/\s+/g, ' ').trim();
+  return t.length > 60 ? `${t.slice(0, 57)}…` : t || 'New chat';
+};
+function loadChats(uid) {
+  chatsKey = `experimentai.chats.${uid}`;
+  try { chats = JSON.parse(localStorage.getItem(chatsKey) || '[]').filter((c) => c?.id && Array.isArray(c.messages)); } catch { chats = []; }
+  renderChats();
+}
+// Save; if the browser's storage is full, let go of the oldest unpinned chats until it fits.
+function saveChats() {
+  for (;;) {
+    try { localStorage.setItem(chatsKey, JSON.stringify(chats)); return; } catch {
+      const victim = chats.filter((c) => !c.pinned && c.id !== currentChatId).sort((a, b) => a.updatedAt - b.updatedAt)[0];
+      if (!victim) return;
+      chats = chats.filter((c) => c !== victim);
+    }
+  }
+}
+// The open chat (chat = its messages, kept below) goes into the list: new on the first reply, updated after that.
+function persistChat() {
+  if (!chatsKey || !chat.length) return;
+  const now = Date.now();
+  let c = chats.find((x) => x.id === currentChatId);
+  if (!c) {
+    c = { id: crypto.randomUUID(), title: titleFrom(chat[0].content), messages: [], createdAt: now, pinned: false };
+    chats.unshift(c);
+    currentChatId = c.id;
+    history.replaceState(null, '', `/home?c=${encodeURIComponent(c.id)}`);
+  }
+  c.messages = chat.map(({ role, content }) => ({ role, content }));
+  c.updatedAt = now;
+  c.model = choice.model;
+  const unpinned = chats.filter((x) => !x.pinned).sort((a, b) => b.updatedAt - a.updatedAt);
+  if (chats.length > CHAT_LIMIT) chats = chats.filter((x) => x.pinned || unpinned.indexOf(x) < CHAT_LIMIT);
+  saveChats();
+  renderChats();
+}
+function openChat(id) {
+  const c = chats.find((x) => x.id === id);
+  if (!c || streaming) return;
+  closeChatMenu();
+  currentChatId = id;
+  chat.length = 0;
+  c.messages.forEach((m) => chat.push({ role: m.role, content: m.content }));
+  thread.replaceChildren();
+  c.messages.forEach((m) => bubble(m.role, m.content));
+  setChatting(true);
+  history.replaceState(null, '', `/home?c=${encodeURIComponent(id)}`);
+  note.textContent = '';
+  renderChats();
+  scrollDown();
+  if (phone.matches) setSidebar(false);
+}
+
+const SORTS = {
+  recent: (a, b) => b.updatedAt - a.updatedAt,
+  newest: (a, b) => b.createdAt - a.createdAt,
+  oldest: (a, b) => a.createdAt - b.createdAt,
+  az: (a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base', numeric: true }),
+  za: (a, b) => b.title.localeCompare(a.title, undefined, { sensitivity: 'base', numeric: true }),
+  longest: (a, b) => b.messages.length - a.messages.length || b.updatedAt - a.updatedAt,
+};
 function renderChats() {
   const q = searchInput.value.trim().toLowerCase();
-  const shown = chats.filter((c) => !q || c.title.toLowerCase().includes(q));
-  $('.chat-list').replaceChildren(...shown.map((c) => {
-    const a = document.createElement('a');
-    a.href = `/home?c=${encodeURIComponent(c.id)}`;
-    a.textContent = c.title;
-    return a;
-  }));
+  const sort = SORTS[sortSelect.value] || SORTS.recent;
+  const shown = chats
+    .filter((c) => !q || c.title.toLowerCase().includes(q) || c.messages.some((m) => m.content.toLowerCase().includes(q)))
+    .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || sort(a, b));
+  $('.chat-list').replaceChildren(...shown.map(chatRow));
   $('.chat-empty').hidden = shown.length > 0;
   $('.chat-empty').textContent = chats.length ? 'No chats match your search.' : 'No chats yet. Start one and it’ll show up here.';
+  $('.chat-sort-wrap').hidden = chats.length < 2;
 }
+function chatRow(c) {
+  const row = document.createElement('div');
+  row.className = `chat-item${c.id === currentChatId ? ' is-current' : ''}`;
+  const a = document.createElement('a');
+  a.href = `/home?c=${encodeURIComponent(c.id)}`;
+  a.textContent = c.title;
+  a.title = c.title;
+  if (c.id === currentChatId) a.setAttribute('aria-current', 'page');
+  a.addEventListener('click', (e) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return; // new tab etc. still works
+    e.preventDefault();
+    openChat(c.id);
+  });
+  row.append(a);
+  if (c.pinned) row.append(Object.assign(document.createElement('span'), { className: 'pin-mark', textContent: 'Pinned' }));
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.className = 'chat-more';
+  more.textContent = '⋯';
+  more.setAttribute('aria-label', `More for “${c.title}”`);
+  more.setAttribute('aria-haspopup', 'menu');
+  more.setAttribute('aria-expanded', 'false');
+  more.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const wasOpen = openChatMenu?.row === row;
+    closeChatMenu();
+    if (!wasOpen) showChatMenu(c, row, more);
+  });
+  row.append(more);
+  return row;
+}
+let openChatMenu = null;
+function closeChatMenu() {
+  if (!openChatMenu) return;
+  openChatMenu.menu.remove();
+  openChatMenu.button.setAttribute('aria-expanded', 'false');
+  openChatMenu = null;
+}
+function showChatMenu(c, row, button) {
+  const menu = document.createElement('div');
+  menu.className = 'chat-menu glass';
+  menu.setAttribute('role', 'menu');
+  const item = (label, fn, cls = '') => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('role', 'menuitem');
+    b.className = cls;
+    b.textContent = label;
+    b.addEventListener('click', (e) => { e.stopPropagation(); closeChatMenu(); fn(); });
+    return b;
+  };
+  menu.append(
+    item(c.pinned ? 'Unpin' : 'Pin to top', () => { c.pinned = !c.pinned; saveChats(); renderChats(); }),
+    item('Rename', () => renameChat(c)),
+    item('Delete', () => deleteChat(c), 'danger'),
+  );
+  row.append(menu);
+  button.setAttribute('aria-expanded', 'true');
+  openChatMenu = { row, menu, button };
+  menu.firstChild.focus();
+}
+function renameChat(c) {
+  const row = [...$('.chat-list').children].find((r) => $('a', r)?.textContent === c.title);
+  if (!row) return;
+  const input = Object.assign(document.createElement('input'), { className: 'chat-rename', value: c.title, maxLength: 80 });
+  input.setAttribute('aria-label', 'Chat name');
+  row.replaceChildren(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = (save) => {
+    if (done) return;
+    done = true;
+    const v = input.value.trim();
+    if (save && v) { c.title = v.slice(0, 80); saveChats(); }
+    renderChats();
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    if (e.key === 'Escape') { e.stopPropagation(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
+}
+function deleteChat(c) {
+  if (!confirm(`Delete “${c.title}”? This can’t be undone.`)) return;
+  chats = chats.filter((x) => x !== c);
+  saveChats();
+  if (c.id === currentChatId) $('[data-new-chat]').click();
+  else renderChats();
+}
+document.addEventListener('click', (e) => { if (openChatMenu && !openChatMenu.row.contains(e.target)) closeChatMenu(); });
+sortSelect.addEventListener('change', () => {
+  try { localStorage.setItem(SORT_KEY, sortSelect.value); } catch {}
+  renderChats();
+});
 
 const setSearch = (open) => {
   searchBox.hidden = !open;
@@ -276,7 +489,7 @@ const unlimited = !planPreview && (() => { try { return localStorage.getItem(UNL
 const featureRank = unlimited ? PLANS.length - 1 : rank;
 const paid = featureRank >= 1; // Light and up: every model, Memory
 const hasProjects = featureRank >= 2; // Pro and up
-const modes = { research: false, memory: paid };
+const modes = { research: false, memory: paid && prefs.memoryDefault !== false }; // Settings → Memory sets the default
 const modesRow = $('.modes', composer);
 
 function renderModes() {
@@ -316,7 +529,7 @@ $$('[data-toggle]', attachMenu).forEach((b) => b.addEventListener('click', () =>
 
 function resetModes() {
   modes.research = false;
-  modes.memory = paid;
+  modes.memory = paid && prefs.memoryDefault !== false;
   renderModes();
 }
 
@@ -408,6 +621,13 @@ try {
   if (allowedModel(saved.model)) choice.model = saved.model;
   if (canUseEffort(saved.effort)) choice.effort = saved.effort;
 } catch {}
+// Settings → Chat & models: the default model and effort win whenever the app opens.
+const effortName = (e) => (e ? e[0].toUpperCase() + e.slice(1) : '');
+function applyModelDefaults() {
+  if (allowedModel(prefs.defaultModel)) choice.model = prefs.defaultModel;
+  if (canUseEffort(effortName(prefs.defaultEffort))) choice.effort = effortName(prefs.defaultEffort);
+}
+applyModelDefaults();
 let menuView = null; // null: Effort + the AIs; otherwise the AI whose models are showing
 const NEXT = '<span class="chev chev-right" aria-hidden="true"></span>';
 const BACK = '<span class="chev chev-left" aria-hidden="true"></span>';
@@ -584,14 +804,19 @@ addEventListener('drop', async (e) => {
   field.focus();
 });
 field.addEventListener('input', () => { fit(); note.textContent = ''; });
+// Enter sends (Shift+Enter: new line), or ⌘/Ctrl+Enter sends if that's chosen in Settings → Chat & models.
 field.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+  if (e.key !== 'Enter' || e.isComposing) return;
+  const mod = e.metaKey || e.ctrlKey;
+  const send = prefs.sendKey === 'mod-enter' ? mod : !e.shiftKey && !mod;
+  if (send) {
     e.preventDefault();
     composer.requestSubmit();
   }
 });
-/* ── Chat: your message and the chat so far go to /api/chat, which streams the chosen model's reply back.
-      This chat lives in the page until New chat (saving chats comes later). Files, Research and Memory aren't sent yet. ── */
+/* ── Chat: your message and the chat so far go to /api/chat, which streams the chosen model's reply back. The chat is
+      saved after each reply (see Chats above). With Memory on, the server adds your memories. Files and Research aren't
+      sent yet. ── */
 const thread = $('.thread');
 const chat = []; // { role: 'user' | 'assistant', content }
 let streaming = null; // an AbortController while a reply is coming in
@@ -600,6 +825,22 @@ function bubble(role, text) {
   const el = document.createElement('div');
   el.className = `msg msg-${role}`;
   el.textContent = text;
+  if (role === 'user' && paid) {
+    // "Remember": put this message in your Memory (Settings → Memory), Light and up
+    const b = Object.assign(document.createElement('button'), { type: 'button', className: 'msg-remember', textContent: 'Remember' });
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      try {
+        await addMemory(text);
+        b.textContent = 'Remembered ✓';
+        b.classList.add('done');
+      } catch (err) {
+        b.disabled = false;
+        note.textContent = err.message;
+      }
+    });
+    el.append(b);
+  }
   thread.append(el);
   return el;
 }
@@ -627,7 +868,7 @@ async function sendChat(text) {
       method: 'POST',
       signal: streaming.signal,
       headers: { Authorization: `Bearer ${await user.getIdToken()}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: choice.model, effort: choice.effort.toLowerCase(), messages: chat }),
+      body: JSON.stringify({ model: choice.model, effort: choice.effort.toLowerCase(), memory: modes.memory, messages: chat }),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -665,8 +906,10 @@ async function sendChat(text) {
     streaming = null;
     composer.classList.remove('busy');
     reply.classList.remove('pending');
-    if (answer) chat.push({ role: 'assistant', content: answer });
-    else {
+    if (answer) {
+      chat.push({ role: 'assistant', content: answer });
+      persistChat();
+    } else {
       // nothing came back: take the message out again and put it back in the box to retry
       reply.remove();
       mine.remove();
@@ -697,6 +940,8 @@ composer.addEventListener('submit', (e) => {
 $('[data-new-chat]').addEventListener('click', () => {
   streaming?.abort();
   chat.length = 0;
+  currentChatId = null;
+  renderChats();
   thread.replaceChildren();
   setChatting(false);
   history.replaceState(null, '', '/home');
@@ -770,7 +1015,7 @@ function billingText() {
 // On localhost, ?spent=day,week (in dollars) previews the bars.
 const BUDGET_BASE = { free: 3, light: 10, pro: 20, 'max-5x': 100, 'max-10x': 200 };
 const budget = { day: BUDGET_BASE[planKey] / 4 / 7, week: BUDGET_BASE[planKey] / 4 };
-const spent = { day: 0, week: 0 };
+const spent = { day: 0, week: 0, models: {} };
 const spentPreview = location.hostname === 'localhost' && new URLSearchParams(location.search).get('spent');
 if (spentPreview) [spent.day, spent.week] = spentPreview.split(',').map((n) => Number(n) || 0);
 
@@ -883,19 +1128,48 @@ async function finishCheckout() {
     note.textContent = err.message;
   }
 }
+// Usage, always as percentages: of the plan's day/week budget (unlimited accounts see the same %, never blocked),
+// when each one resets, and this week's split by model.
+const pctText = (raw) => (raw > 0 && raw < 1 ? '<1%' : `${Math.round(raw)}%`);
+function resetIn(period) {
+  const now = new Date();
+  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)); // next UTC midnight
+  if (period === 'week') next.setUTCDate(next.getUTCDate() + ((8 - next.getUTCDay()) % 7)); // …that's a Monday
+  const mins = Math.max(1, Math.round((next - now) / 60000));
+  if (mins < 60) return `Resets in ${mins} min`;
+  if (mins < 48 * 60) return `Resets in ${Math.floor(mins / 60)}h ${mins % 60}m`;
+  return `Resets in ${Math.round(mins / 1440)} days (Monday, midnight UTC)`;
+}
 function renderUsage() {
   for (const period of ['day', 'week']) {
     const box = $(`.usage-bar[data-period="${period}"]`);
-    const raw = unlimited ? 0 : (spent[period] / budget[period]) * 100;
+    const raw = budget[period] ? (spent[period] / budget[period]) * 100 : 0;
     const pct = Math.min(100, Math.round(raw));
     $('.usage-pct', box).textContent = unlimited
-      ? `Unlimited · $${spent[period].toFixed(2)} of AI used`
-      : pct >= 100 ? 'Limit reached' : raw > 0 && raw < 1 ? '<1% used' : `${pct}% used`;
+      ? `${pctText(raw)} used · unlimited`
+      : pct >= 100 ? 'Limit reached' : `${pctText(raw)} used`;
     const meter = $('.bar', box);
     meter.setAttribute('aria-valuenow', String(pct));
-    meter.dataset.level = pct >= 100 ? 'full' : pct >= 80 ? 'high' : '';
+    meter.dataset.level = unlimited ? '' : pct >= 100 ? 'full' : pct >= 80 ? 'high' : '';
     $('i', meter).style.width = `${pct}%`;
+    $('.usage-reset', box).textContent = resetIn(period);
   }
+  // this week by model: each model's share of what you've used
+  const byKey = new Map(ALL_MODELS.map((m) => [m.id.replace(/[./]/g, '_'), m]));
+  const rows = Object.entries(spent.models || {}).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  const total = rows.reduce((n, [, v]) => n + v, 0);
+  $('.usage-models').replaceChildren(...rows.map(([key, v]) => {
+    const m = byKey.get(key);
+    const li = document.createElement('li');
+    const share = total ? (v / total) * 100 : 0;
+    li.innerHTML = '<img alt="" /><span class="um-name"></span><span class="um-pct"></span><div class="bar"><i></i></div>';
+    $('img', li).src = m?.group.logo || 'assets/potion-orb-pfp-sky-bottle.png';
+    $('.um-name', li).textContent = m ? `${m.group.group} · ${m.name}` : key;
+    $('.um-pct', li).textContent = `${pctText(share)} of this week`;
+    $('i', li).style.width = `${Math.max(2, share)}%`;
+    return li;
+  }));
+  $('.usage-models-empty').hidden = rows.length > 0;
 }
 let openSheet = null;
 let sheetOpener = null;
@@ -915,16 +1189,27 @@ function fillSheets(user) {
   });
   $('.yearly-tip').hidden = !PLAN_PRICE[planKey] || billing === 'yearly';
   $('.manage-billing-row').hidden = !billingInfo?.canManage;
+  $('.plan-hero-status').textContent = unlimited ? 'Unlimited usage on this account'
+    : billingInfo?.status === 'past_due' ? 'Payment failed: update your card in Manage billing'
+      : billingInfo?.cancelAtPeriodEnd ? 'Cancelled: stays on until the end of the period'
+        : PLAN_PRICE[planKey] ? `$${PLAN_PRICE[planKey]} a month${billing === 'yearly' ? ', billed yearly' : ''}` : 'Free forever';
+  // Account details
+  const when = (t) => (t ? new Date(t).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : '—');
+  $('.set-created').textContent = when(user.metadata?.creationTime);
+  $('.set-last').textContent = when(user.metadata?.lastSignInTime);
+  $('.set-uid').textContent = user.uid;
+  $('.password-row').hidden = !user.providerData.some((p) => p.providerId === 'password');
   // nothing to upgrade to from the top plan
   $$('[data-upgrade]').forEach((el) => { el.hidden = planKey === 'max-10x'; });
 }
-function setSheet(name) {
+function setSheet(name, section) {
+  // Usage lives in Settings now: the Usage buttons open that section
+  if (name === 'usage') { name = 'settings'; section = 'usage'; }
   if (openSheet) openSheet.hidden = true;
   if (embeddedCheckout && name !== 'plans') closeCheckout();
-  if (name === 'settings') ['name', 'email'].forEach((key) => setEditing(key, false, true));
-  if (name === 'usage') {
-    requestAnimationFrame(renderUsage); // bars fill in as the panel opens
-    if (auth.currentUser) loadUsage(auth.currentUser);
+  if (name === 'settings') {
+    ['name', 'email'].forEach((key) => setEditing(key, false, true));
+    showSection(section || lastSection);
   }
   if (name === 'plans') {
     plansMsg.textContent = '';
@@ -948,6 +1233,339 @@ document.addEventListener('keydown', (e) => {
     setSheet(null);
   }
 }, true);
+
+/* ── Settings panel: sections on the left; every change saves itself (Saving… → Saved in the header). ── */
+const SECTION_KEY = 'experimentai.settingsSection';
+let lastSection = 'profile';
+try { lastSection = sessionStorage.getItem(SECTION_KEY) || 'profile'; } catch {}
+function showSection(name) {
+  if (!$(`.settings-panel[data-panel="${name}"]`)) name = 'profile';
+  lastSection = name;
+  try { sessionStorage.setItem(SECTION_KEY, name); } catch {}
+  $$('.settings-nav button').forEach((b) => b.setAttribute('aria-current', String(b.dataset.section === name)));
+  $(`.settings-nav [data-section="${name}"]`).scrollIntoView({ block: 'nearest', inline: 'nearest' }); // phones: tabs scroll
+  $$('.settings-panel').forEach((p) => { p.hidden = p.dataset.panel !== name; });
+  $('.settings-panels').scrollTop = 0;
+  if (name === 'usage') {
+    requestAnimationFrame(renderUsage); // bars fill in as the section opens
+    if (auth.currentUser) loadUsage(auth.currentUser);
+  }
+  if (name === 'memory') renderMemories();
+  if (name === 'data') renderLocalSummary();
+}
+$$('.settings-nav button').forEach((b) => b.addEventListener('click', () => showSection(b.dataset.section)));
+
+const saveState = $('.save-state');
+let pendingPrefs = {};
+let saveTimer = null;
+function setPref(key, value, { now = false } = {}) {
+  prefs[key] = value;
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch {}
+  applyPrefs();
+  pendingPrefs[key] = value;
+  saveState.textContent = 'Saving…';
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(flushPrefs, now ? 0 : 700);
+}
+async function flushPrefs() {
+  const patch = pendingPrefs;
+  pendingPrefs = {};
+  if (!Object.keys(patch).length) return;
+  try {
+    await apiPost('/api/settings', { action: 'save', settings: patch });
+    saveState.textContent = 'Saved';
+    setTimeout(() => { if (saveState.textContent === 'Saved') saveState.textContent = ''; }, 1800);
+  } catch (err) {
+    saveState.textContent = err.message;
+  }
+}
+addEventListener('pagehide', () => { if (Object.keys(pendingPrefs).length) flushPrefs(); });
+
+// What the settings change on screen right away.
+function applyPrefs() {
+  const root = document.documentElement;
+  root.dataset.textSize = prefs.textSize || 'default';
+  root.classList.toggle('reduce-motion', Boolean(prefs.reduceMotion));
+  applyTheme();
+  if (auth.currentUser) greet(auth.currentUser);
+  const modKey = isMac ? '⌘' : 'Ctrl';
+  const kbd = (...keys) => keys.map((k) => `<kbd>${k}</kbd>`).join('');
+  $('.send-keys').innerHTML = prefs.sendKey === 'mod-enter' ? kbd(modKey, 'Enter') : kbd('Enter');
+  $('.newline-keys').innerHTML = prefs.sendKey === 'mod-enter' ? kbd('Enter') : kbd('Shift', 'Enter');
+  $('.send-hint').textContent = prefs.sendKey === 'mod-enter'
+    ? `Enter adds a new line; ${modKey} + Enter sends. Handy for long messages.`
+    : 'Enter sends; Shift + Enter adds a new line.';
+}
+
+// The controls show the saved settings.
+const defaultModelSelect = $('select[data-pref="defaultModel"]');
+defaultModelSelect.replaceChildren(...MODELS.map((g) => {
+  const og = document.createElement('optgroup');
+  og.label = g.group;
+  og.append(...g.items.map((m) => {
+    const o = new Option(m.minRank > featureRank ? `${m.name} (Light+)` : m.name, m.id);
+    o.disabled = m.minRank > featureRank;
+    return o;
+  }));
+  return og;
+}));
+const COUNT_MAX = { about: 1500, instructions: 3000 };
+function updateCounts() {
+  $$('[data-count-for]').forEach((el) => {
+    const key = el.dataset.countFor;
+    el.textContent = `${(prefs[key] || '').length} / ${COUNT_MAX[key].toLocaleString()}`;
+  });
+}
+function fillPrefControls() {
+  const shown = {
+    ...prefs,
+    defaultModel: allowedModel(prefs.defaultModel) ? prefs.defaultModel : choice.model,
+    defaultEffort: prefs.defaultEffort || choice.effort.toLowerCase(),
+  };
+  $$('.settings-panels [data-pref]').forEach((el) => {
+    const v = shown[el.dataset.pref];
+    if (el.classList.contains('segmented')) {
+      $$('button', el).forEach((b) => b.setAttribute('aria-checked', String(b.dataset.value === v)));
+    } else if (el.classList.contains('switch-btn')) {
+      el.setAttribute('aria-checked', String(Boolean(v)));
+    } else if (document.activeElement !== el) {
+      el.value = v ?? '';
+    }
+  });
+  // plan limits: High effort and Memory are Light and up
+  $('[data-pref="defaultEffort"] [data-value="high"]').disabled = !paid;
+  $('[data-pref="memoryDefault"]').disabled = !paid;
+  $('.memory-plan-note').textContent = paid ? 'Switch it off for one chat in the + menu.' : 'Memory comes with Light and up.';
+  $('.memory-add input').disabled = !paid;
+  $('.memory-add button').disabled = !paid;
+  updateCounts();
+}
+$$('.settings-panels .segmented').forEach((group) => group.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-value]');
+  if (!b || b.disabled) return;
+  setPref(group.dataset.pref, b.dataset.value, { now: true });
+  if (group.dataset.pref === 'defaultEffort') {
+    applyModelDefaults();
+    renderModel();
+    try { localStorage.setItem(MODEL_KEY, JSON.stringify(choice)); } catch {}
+  }
+  fillPrefControls();
+}));
+$$('.settings-panels .switch-btn').forEach((sw) => sw.addEventListener('click', () => {
+  if (sw.disabled) return;
+  setPref(sw.dataset.pref, !prefs[sw.dataset.pref], { now: true });
+  if (sw.dataset.pref === 'memoryDefault' && !chat.length) resetModes();
+  fillPrefControls();
+}));
+$$('.settings-panels input[data-pref], .settings-panels textarea[data-pref]').forEach((el) => el.addEventListener('input', () => {
+  setPref(el.dataset.pref, el.value);
+  updateCounts();
+}));
+defaultModelSelect.addEventListener('change', () => {
+  setPref('defaultModel', defaultModelSelect.value, { now: true });
+  applyModelDefaults();
+  renderModel();
+  try { localStorage.setItem(MODEL_KEY, JSON.stringify(choice)); } catch {}
+});
+
+/* Profile picture: cropped to a square and shrunk to 256×256 in the browser, then saved (api/settings.js). */
+$('.avatar-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const msg = $('.avatar-msg');
+  msg.textContent = 'Saving your picture…';
+  try {
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) throw new Error('Pick a JPEG, PNG or WebP picture.');
+    if (file.size > 15e6) throw new Error('That picture is over 15 MB. Try a smaller one.');
+    const bmp = await createImageBitmap(file);
+    const side = Math.min(bmp.width, bmp.height);
+    const canvas = Object.assign(document.createElement('canvas'), { width: 256, height: 256 });
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; // transparent PNGs get a white background, not black
+    ctx.fillRect(0, 0, 256, 256);
+    ctx.drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, 256, 256);
+    const { avatar } = await apiPost('/api/settings', { action: 'avatar', image: canvas.toDataURL('image/jpeg', 0.86) });
+    avatarUrl = avatar;
+    showProfile(auth.currentUser);
+    msg.textContent = 'Saved.';
+  } catch (err) {
+    msg.textContent = err.message || 'That picture couldn’t be read. Try another one.';
+  }
+});
+$('[data-avatar-remove]').addEventListener('click', async () => {
+  const msg = $('.avatar-msg');
+  try {
+    await apiPost('/api/settings', { action: 'avatar', image: null });
+    avatarUrl = null;
+    showProfile(auth.currentUser);
+    msg.textContent = 'Removed.';
+  } catch (err) {
+    msg.textContent = err.message;
+  }
+});
+
+/* Memory: add, search, edit and delete what Experiment AI remembers (and "Remember" on your messages). */
+const MEMORY_MAX = 100;
+async function saveMemoryList(list) {
+  const { memories: saved } = await apiPost('/api/settings', { action: 'memories', memories: list });
+  memories = saved;
+  renderMemories();
+}
+async function addMemory(text) {
+  const t = text.trim().slice(0, 400);
+  if (!t) return;
+  if (memories.length >= MEMORY_MAX) throw new Error(`Memory is full (${MEMORY_MAX}). Delete something in Settings → Memory first.`);
+  await saveMemoryList([{ text: t, at: Date.now() }, ...memories]);
+}
+const memoryMsg = (text) => { $('.memory-msg').textContent = text; };
+function renderMemories() {
+  const q = $('.memory-filter').value.trim().toLowerCase();
+  const shown = memories.filter((m) => !q || m.text.toLowerCase().includes(q));
+  $('.memory-list').replaceChildren(...shown.map((m) => {
+    const li = document.createElement('li');
+    const body = document.createElement('div');
+    body.className = 'mem-text';
+    body.textContent = m.text;
+    const date = textEl('span', 'mem-date', new Date(m.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }));
+    body.append(date);
+    const actions = document.createElement('div');
+    actions.className = 'mem-actions';
+    const edit = textEl('button', 'mem-edit', 'Edit');
+    const del = textEl('button', 'mem-del', 'Delete');
+    edit.type = del.type = 'button';
+    edit.addEventListener('click', () => editMemory(li, m));
+    del.addEventListener('click', async () => {
+      try { await saveMemoryList(memories.filter((x) => x.id !== m.id)); memoryMsg('Forgotten.'); } catch (err) { memoryMsg(err.message); }
+    });
+    actions.append(edit, del);
+    li.append(body, actions);
+    return li;
+  }));
+  $('.memory-count').textContent = `${memories.length} of ${MEMORY_MAX} remembered`;
+  $('.memory-empty').hidden = memories.length > 0;
+  $('[data-memory-clear]').hidden = !memories.length;
+}
+function editMemory(li, m) {
+  const area = Object.assign(document.createElement('textarea'), { value: m.text, maxLength: 400, rows: 2 });
+  area.setAttribute('aria-label', 'Edit memory');
+  const actions = document.createElement('div');
+  actions.className = 'mem-actions';
+  const save = textEl('button', '', 'Save');
+  const cancel = textEl('button', '', 'Cancel');
+  save.type = cancel.type = 'button';
+  save.addEventListener('click', async () => {
+    const t = area.value.trim();
+    if (!t) return area.focus();
+    try { await saveMemoryList(memories.map((x) => (x.id === m.id ? { ...x, text: t } : x))); memoryMsg('Updated.'); } catch (err) { memoryMsg(err.message); }
+  });
+  cancel.addEventListener('click', renderMemories);
+  actions.append(save, cancel);
+  li.replaceChildren(area, actions);
+  area.focus();
+}
+$('.memory-add').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = $('input', e.currentTarget);
+  try {
+    await addMemory(input.value);
+    input.value = '';
+    memoryMsg('Remembered.');
+  } catch (err) {
+    memoryMsg(err.message);
+  }
+});
+$('.memory-filter').addEventListener('input', renderMemories);
+$('[data-memory-clear]').addEventListener('click', async () => {
+  if (!confirm('Forget everything in Memory? This can’t be undone.')) return;
+  try { await saveMemoryList([]); memoryMsg('Memory cleared.'); } catch (err) { memoryMsg(err.message); }
+});
+
+/* Account: copy your ID, reset your password, sign out everywhere. */
+const accountMsg = (text) => { $('.account-msg').textContent = text; };
+$('[data-copy-uid]').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(auth.currentUser.uid); accountMsg('Account ID copied.'); } catch { accountMsg('Couldn’t copy. Select it and copy instead.'); }
+});
+$('[data-reset-password]').addEventListener('click', async () => {
+  try {
+    await sendPasswordResetEmail(auth, auth.currentUser.email);
+    accountMsg(`We sent a link to ${auth.currentUser.email}. Open it to set a new password.`);
+  } catch {
+    accountMsg('Couldn’t send the email. Try again in a few minutes.');
+  }
+});
+$('[data-signout-all]').addEventListener('click', async () => {
+  if (!confirm('Sign out on every device, including this one?')) return;
+  try {
+    await apiPost('/api/settings', { action: 'signout-all' });
+    await signOut(auth);
+    location.replace('/');
+  } catch (err) {
+    accountMsg(err.message);
+  }
+});
+
+/* Data & privacy: download everything, or clear what this browser keeps. */
+const dataMsg = (text) => { $('.data-msg').textContent = text; };
+function renderLocalSummary() {
+  const n = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
+  $('.local-summary').textContent = `${n(chats.length, 'chat')} and ${n(projects.length, 'project')} are saved in this browser only.`;
+}
+$('[data-export]').addEventListener('click', async () => {
+  dataMsg('Getting your data…');
+  try {
+    const data = await apiPost('/api/settings', { action: 'export' });
+    data.chatsInThisBrowser = chats;
+    data.projectsInThisBrowser = projects;
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: `experiment-ai-data-${new Date().toISOString().slice(0, 10)}.json` });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    dataMsg('Downloaded (with the chats saved in this browser).');
+  } catch (err) {
+    dataMsg(err.message);
+  }
+});
+$('[data-clear-local]').addEventListener('click', () => {
+  if (!confirm('Clear the chats, projects and preferences saved in this browser? Your account, settings and memory stay.')) return;
+  try {
+    Object.keys(localStorage).filter((k) => k.startsWith('experimentai.')).forEach((k) => localStorage.removeItem(k));
+  } catch {}
+  location.replace('/home');
+});
+
+/* Keyboard shortcuts (Settings → Shortcuts). */
+document.addEventListener('keydown', (e) => {
+  const mod = isMac ? e.metaKey : e.ctrlKey;
+  if (!mod || e.altKey) return;
+  const key = e.key.toLowerCase();
+  if (key === 'o' && e.shiftKey) { e.preventDefault(); $('[data-new-chat]').click(); return; }
+  if (e.shiftKey) return;
+  if (key === 'j') { e.preventDefault(); setSheet(null); field.focus(); }
+  else if (key === 'k') { e.preventDefault(); setSheet(null); if (phone.matches) setSidebar(true); else if (app.classList.contains('side-hidden')) setSidebar(true); setSearch(true); }
+  else if (key === 'b') { e.preventDefault(); setSidebar(phone.matches ? !app.classList.contains('side-open') : app.classList.contains('side-hidden')); }
+  else if (key === ',') { e.preventDefault(); sheetOpener = document.activeElement; setMenu(false); setSheet('settings'); }
+});
+
+// Settings from the server, once signed in (the look-and-feel ones were already applied from this browser).
+async function loadSettings(user) {
+  try {
+    const data = await apiPost('/api/settings', { action: 'get' });
+    prefs = { ...DEFAULT_PREFS, ...data.settings };
+    avatarUrl = data.avatar || null;
+    memories = data.memories || [];
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch {}
+  } catch {} // keep what this browser had
+  applyPrefs();
+  fillPrefControls();
+  showProfile(user);
+  renderMemories();
+  applyModelDefaults();
+  renderModel();
+  if (!chat.length) resetModes();
+}
 
 /* ── Plans pop-up (Upgrade, See plans): the four cards, loaded from /pricing so there's one copy of them.
       Your plan says Current, cheaper ones Change, pricier ones Upgrade. Payments aren't connected yet. ── */
@@ -1186,6 +1804,9 @@ confirmDelete.addEventListener('click', async () => {
       localStorage.removeItem(HIDDEN_KEY);
       localStorage.removeItem(PLAN_KEY);
       localStorage.removeItem(UNLIMITED_KEY);
+      localStorage.removeItem(`experimentai.chats.${user.uid}`);
+      localStorage.removeItem(PREFS_KEY);
+      localStorage.removeItem(SORT_KEY);
     } catch {}
     await signOut(auth).catch(() => {});
     location.replace('/?deleted');
@@ -1238,7 +1859,10 @@ onAuthStateChanged(auth, async (user) => {
   showProfile(user);
   fillSheets(user);
   loadProjects(user.uid);
-  renderChats();
+  loadChats(user.uid);
+  const openId = new URLSearchParams(location.search).get('c'); // /home?c=… opens that saved chat
+  if (openId && chats.some((c) => c.id === openId)) openChat(openId);
+  loadSettings(user);
   try {
     const welcome = sessionStorage.getItem('experimentai.welcome');
     sessionStorage.removeItem('experimentai.welcome');
@@ -1250,11 +1874,13 @@ onAuthStateChanged(auth, async (user) => {
   if (!phone.matches) field.focus();
 });
 
-// Night theme: dark blue from 7pm to 6am, your local time (first set by the script in <head>).
+// Theme (Settings → Appearance): auto = dark blue night sky from 7pm to 6am, your local time; or always day / night.
+// First set by the script in <head>.
 const themePreview = location.hostname === 'localhost' && new URLSearchParams(location.search).get('theme');
 function applyTheme() {
   const hour = new Date().getHours();
-  const night = themePreview ? themePreview === 'night' : hour >= 19 || hour < 6;
+  const theme = themePreview || prefs.theme || 'auto';
+  const night = theme === 'night' || (theme === 'auto' && (hour >= 19 || hour < 6));
   document.documentElement.classList.toggle('night', night);
   $('meta[name="theme-color"]').content = night ? '#0b1526' : '#3a659b';
 }

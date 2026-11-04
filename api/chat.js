@@ -10,13 +10,18 @@ import {
   EFFORTS, GATEWAY, MODELS, PLANS, addSpent, budgetsFor, costOf, effortFor, inputRate, isUnlimited, modelInfo,
   outputRate, planOf, requireAccess, reserve,
 } from './_ai.js';
+import { promptFromProfile, readProfile } from './_profile.js';
 
 const MAX_MESSAGES = 40;
 const MAX_CHARS = 120_000; // the whole conversation sent with each message
 const MAX_REPLY_TOKENS = 16_000; // includes the model's thinking
 const MIN_REPLY_TOKENS = 400; // below this the reply would be cut off almost at once
 
-const system = () => `You are Experiment AI, an assistant made by Experiment Labs. Be helpful, clear and honest. Today is ${new Date().toISOString().slice(0, 10)}.`;
+// The model's instructions: who it is, plus the person's own settings (name, style, language, about, instructions).
+const system = (personal = '') => [
+  `You are Experiment AI, an assistant made by Experiment Labs. Be helpful, clear and honest. Today is ${new Date().toISOString().slice(0, 10)}.`,
+  personal,
+].filter(Boolean).join('\n\n');
 
 function readMessages(body) {
   const list = Array.isArray(body?.messages) ? body.messages.slice(-MAX_MESSAGES) : [];
@@ -41,9 +46,11 @@ export default handle(async (req, res) => {
 
   const user = await requireUser(req);
   requireAccess(user);
-  const plan = await planOf(user.uid);
+  const [plan, profile] = await Promise.all([planOf(user.uid), readProfile(user.uid)]);
   const unlimited = isUnlimited(user);
   const rank = unlimited ? PLANS.length - 1 : PLANS.indexOf(plan);
+  // Memory is for Light and up; it's used only when the chat has it switched on.
+  const instructions = system(promptFromProfile(profile, user, { memory: req.body?.memory === true && rank >= 1 }));
 
   const id = String(req.body?.model || '');
   if (!(id in MODELS)) throw new HttpError(400, 'Pick a model first.');
@@ -55,7 +62,7 @@ export default handle(async (req, res) => {
 
   // Hold back the most this reply could cost (a generous guess at the prompt size + the longest reply), up to what's left.
   const model = await modelInfo(id);
-  const promptGuess = Math.ceil((system().length + messages.reduce((n, m) => n + m.content.length, 0)) / 3) + 50 * messages.length;
+  const promptGuess = Math.ceil((instructions.length + messages.reduce((n, m) => n + m.content.length, 0)) / 3) + 50 * messages.length;
   const inCost = promptGuess * inputRate(model, promptGuess);
   const perOut = outputRate(model, promptGuess) || 1e-9;
   const held = unlimited ? 0 : await reserve(user.uid, plan, inCost + MAX_REPLY_TOKENS * perOut);
@@ -77,7 +84,7 @@ export default handle(async (req, res) => {
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: id,
-        messages: [{ role: 'system', content: system() }, ...messages],
+        messages: [{ role: 'system', content: instructions }, ...messages],
         max_tokens: maxTokens,
         ...(effort && { reasoning: { effort } }),
         stream: true,
@@ -133,7 +140,7 @@ export default handle(async (req, res) => {
   // Swap the hold for what it really cost.
   const cost = usage ? costOf(model, usage) : inCost + Math.ceil(written / 3) * perOut;
   try {
-    const spent = await addSpent(user.uid, cost - held);
+    const spent = await addSpent(user.uid, cost - held, id, cost);
     if (failed) send({ type: 'error', error: failed });
     send({ type: 'done', spent, budgets: budgetsFor(plan), unlimited });
   } catch (err) {

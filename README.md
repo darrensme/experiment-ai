@@ -107,6 +107,23 @@ recorded and the Usage panel shows it in dollars.
 Stripe sets plans (see Payments). To give someone a plan by hand without paying: Firestore → `plans` → document ID =
 their UID → field `plan` (string) = `light`, `pro`, `max-5x` or `max-10x` (a Stripe event for them later overwrites it).
 
+## The app's home, chats and Settings (secret site)
+
+- **Greeting:** the logo sits left of a line picked once per visit (time of day, weekday, a few for fun) with the
+  person's name or nickname; Settings → Appearance can switch to a plain "Good evening".
+- **Chats** are saved in the browser (`experimentai.chats.<uid>`, up to 200; oldest unpinned go first if storage is full).
+  The sidebar sorts them (recent, newest, oldest, A–Z, Z–A, longest; pinned on top), searches titles and text, and
+  ⋯ pins, renames or deletes. `/home?c=<id>` opens one.
+- **Settings** (profile menu → Settings, or ⌘/Ctrl + ,) has sections: Profile (photo, name, nickname, about you),
+  Appearance (theme, text size, greetings, reduce motion), Chat & models (default model/effort, style, reply language,
+  custom instructions, Enter vs ⌘/Ctrl+Enter), Memory, Usage (the Usage buttons open it; percentages only, reset
+  countdowns, this week by model), Billing, Account (email, password reset, sign out everywhere, delete), Data & privacy
+  (download your data, clear this browser), Connectors (Coming soon), Shortcuts, About.
+- Everything saves through **`api/settings.js`** into Firestore `profiles/{uid}` (checked in `api/_profile.js`). The chat
+  puts the name, style, language, "about you" and custom instructions in the model's instructions.
+- **Memory** is a list (up to 100, 400 characters each) edited in Settings → Memory or with "Remember" on a sent message.
+  Chats with Memory on (Light and up) get it in the model's instructions.
+
 ## Payments (Stripe, embedded checkout)
 
 Upgrade / See plans → pick a plan → Stripe's checkout opens **inside the plans pop-up** (embedded, `ui_mode:

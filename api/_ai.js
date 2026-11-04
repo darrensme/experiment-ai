@@ -94,23 +94,29 @@ export function periodKeys(now = new Date()) {
   monday.setUTCDate(now.getUTCDate() - ((now.getUTCDay() + 6) % 7));
   return { day, week: monday.toISOString().slice(0, 10) };
 }
+// `models` is this week's cost per model (keys are model IDs with "/" and "." as "_"), for the Usage breakdown.
 const current = (data, keys) => ({
   day: data?.dayKey === keys.day ? data.day : 0,
   week: data?.weekKey === keys.week ? data.week : 0,
+  models: data?.weekKey === keys.week ? data.models || {} : {},
 });
+export const modelKey = (id) => id.replace(/[./]/g, '_');
 
 export async function readSpent(uid) {
   return current((await db().collection('usage').doc(uid).get()).data(), periodKeys());
 }
 
-// Add `amount` dollars (negative to give some back) to today and this week, in one transaction. Returns the new totals.
-export async function addSpent(uid, amount) {
+// Add `amount` dollars (negative to give some back) to today and this week, in one transaction; `model` and `cost`
+// also add the reply's real cost to that model's line for the week. Returns the new totals.
+export async function addSpent(uid, amount, model = null, cost = 0) {
   const ref = db().collection('usage').doc(uid);
   return db().runTransaction(async (tx) => {
     const keys = periodKeys();
     const now = current((await tx.get(ref)).data(), keys);
-    const next = { day: Math.max(0, now.day + amount), week: Math.max(0, now.week + amount) };
-    tx.set(ref, { dayKey: keys.day, day: next.day, weekKey: keys.week, week: next.week, updatedAt: new Date() });
+    const models = { ...now.models };
+    if (model && cost > 0) models[modelKey(model)] = (models[modelKey(model)] || 0) + cost;
+    const next = { day: Math.max(0, now.day + amount), week: Math.max(0, now.week + amount), models };
+    tx.set(ref, { dayKey: keys.day, day: next.day, weekKey: keys.week, week: next.week, models, updatedAt: new Date() });
     return next;
   });
 }
@@ -126,7 +132,7 @@ export async function reserve(uid, plan, most) {
     if (now.week >= budgets.week) throw new HttpError(429, 'You’ve reached this week’s usage limit. It resets on Monday (UTC).');
     if (now.day >= budgets.day) throw new HttpError(429, 'You’ve reached today’s usage limit. It resets at midnight UTC.');
     const held = Math.min(most, budgets.day - now.day, budgets.week - now.week);
-    tx.set(ref, { dayKey: keys.day, day: now.day + held, weekKey: keys.week, week: now.week + held, updatedAt: new Date() });
+    tx.set(ref, { dayKey: keys.day, day: now.day + held, weekKey: keys.week, week: now.week + held, models: now.models, updatedAt: new Date() });
     return held;
   });
 }

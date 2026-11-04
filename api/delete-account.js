@@ -1,5 +1,5 @@
 // POST /api/delete-account — permanently deletes the signed-in person's account and everything stored for them:
-// their waitlist entry, any pending email code, their plan and usage, and the Firebase account itself.
+// their waitlist entry, any pending email code, their plan, usage and settings, and the Firebase account itself.
 // A paid subscription is cancelled in Stripe first (right away, so they're never charged again). The app confirms first.
 import { auth, db, handle, requireUser } from './_shared.js';
 import { stripe } from './_stripe.js';
@@ -20,6 +20,7 @@ export default handle(async (req, res) => {
     store.collection('emailCodes').doc(user.uid).delete(),
     store.collection('plans').doc(user.uid).delete(),
     store.collection('usage').doc(user.uid).delete(),
+    store.collection('profiles').doc(user.uid).delete(),
   ]);
   await auth().deleteUser(user.uid);
   res.status(200).json({ deleted: true });

@@ -4,8 +4,9 @@ rules_version = '2';
 // Each signed-in person with a verified email can create and read only their own waitlist entry. Nobody can
 // list the waitlist from the browser; read it in the Firebase console (or with the Admin SDK).
 // emailCodes/{uid} (verification codes) has no rule, so browsers can't touch it; only the server functions can.
-// The same goes for plans/{uid} { plan } (set by the server / Stripe webhook) and usage/{uid} (AI spending): no rule on
-// purpose, so nobody can give themselves a plan or reset their usage from the browser.
+// The same goes for plans/{uid} { plan } (set by the server / Stripe webhook), usage/{uid} (AI spending) and
+// profiles/{uid} (Settings and Memory, read and written through api/settings.js): no rule on purpose, so nobody can give
+// themselves a plan, reset their usage or touch someone else's settings from the browser.
 service cloud.firestore {
   match /databases/{database}/documents {
     function counter() { return /databases/$(database)/documents/meta/waitlist; }
