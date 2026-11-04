@@ -139,9 +139,57 @@ $('side-close').addEventListener('click', () => setSidebar(false));
 $('side-open').addEventListener('click', () => setSidebar(true));
 $('scrim').addEventListener('click', () => setSidebar(false));
 
+/* ── Sort chats (Recent / Newest / Oldest / A–Z), remembered ── */
+const SORTS = [
+  ['recent', 'Recent', 'Last active first'],
+  ['newest', 'Newest', 'Newest chats first'],
+  ['oldest', 'Oldest', 'Oldest chats first'],
+  ['az', 'A–Z', 'By name'],
+];
+const SORTERS = {
+  recent: byRecent,
+  newest: (a, b) => b.createdAt - a.createdAt,
+  oldest: (a, b) => a.createdAt - b.createdAt,
+  az: (a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base', numeric: true }),
+};
+let sortMode = 'recent';
+try { const s = localStorage.getItem('ea.sort'); if (SORTERS[s]) sortMode = s; } catch {}
+const sortMenu = $('sort-menu');
+const sortBtn = $('sort-btn');
+const sortOpen = () => isShown(sortMenu);
+
+function setSort(mode) {
+  sortMode = mode;
+  try { localStorage.setItem('ea.sort', mode); } catch {}
+  closeSort();
+  seenChats = null; // re-order without the slide-in
+  renderSidebar();
+}
+function renderSortMenu() {
+  fill(sortMenu, SORTS.map(([key, label, hint]) => el('button', {
+    type: 'button', class: 'menu-item sort-opt', role: 'menuitemradio', 'aria-checked': String(key === sortMode),
+    title: hint, onclick: () => setSort(key),
+  }, el('span', { class: 'grow' }, label), key === sortMode && icon('check'))));
+}
+function openSort() {
+  renderSortMenu();
+  showPop(sortMenu);
+  sortBtn.setAttribute('aria-expanded', 'true');
+}
+function closeSort() {
+  hidePop(sortMenu);
+  sortBtn.setAttribute('aria-expanded', 'false');
+}
+sortBtn.addEventListener('click', () => (sortOpen() ? closeSort() : openSort()));
+document.addEventListener('pointerdown', (e) => {
+  if (sortOpen() && !sortMenu.contains(e.target) && !sortBtn.contains(e.target)) closeSort();
+});
+
 let seenChats = null; // chat ids already shown, so only new ones slide in
 function renderSidebar() {
-  const sorted = [...chats].sort(byRecent);
+  const sorted = [...chats].sort(SORTERS[sortMode]);
+  $('sort-label').textContent = SORTS.find(([k]) => k === sortMode)[1];
+  $('sort').hidden = chats.length < 2; // nothing to sort with 0–1 chats
   const isNew = (id) => seenChats && !seenChats.has(id);
   $('chat-list').replaceChildren(...sorted.map((c) => el('li', { class: isNew(c.id) ? 'new' : null },
     el('button', { type: 'button', class: 'chat-item', title: c.title, 'aria-current': c.id === currentId ? 'page' : null, onclick: () => openChat(c.id) }, c.title),
@@ -806,6 +854,7 @@ document.addEventListener('keydown', (e) => {
   if (menuOpen()) { closeMenu(); plusBtn.focus(); }
   else if (modelMenuOpen()) { closeModelMenu(); modelBtn.focus(); }
   else if (accountOpen()) { closeAccount(); accountBtn.focus(); }
+  else if (sortOpen()) { closeSort(); sortBtn.focus(); }
   else if (searchOpen()) closeSearch();
   else if (projectsOpen()) closeProjects();
   else if (phone.matches) setSidebar(false);
