@@ -562,6 +562,17 @@ accountBtn.addEventListener('click', () => (accountOpen() ? closeAccount() : ope
 document.addEventListener('pointerdown', (e) => {
   if (accountOpen() && !accountMenu.contains(e.target) && !accountBtn.contains(e.target)) closeAccount();
 });
+// Called by auth-app.js once sign-in is known: your real name and picture (null = local preview, stays "Guest")
+function setAccount(user) {
+  if (user) {
+    $('account-name').textContent = user.name;
+    accountBtn.title = user.email;
+    const pfp = $('account-pfp');
+    pfp.onerror = () => { pfp.onerror = null; pfp.src = '/assets/potion-orb-icon-pfp.png'; }; // fall back if the photo won't load
+    if (user.photo) pfp.src = user.photo;
+  }
+  document.documentElement.classList.remove('auth-pending');
+}
 // Settings, Usage and Upgrade plan don't do anything yet
 accountMenu.querySelectorAll('[data-soon]').forEach((b) => b.addEventListener('click', closeAccount));
 $('learn-btn').addEventListener('click', () => {
