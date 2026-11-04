@@ -35,7 +35,7 @@ function el(tag, attrs = {}, ...children) {
   return node;
 }
 // drop null/false/'' so `cond && el(...)` is safe as a child
-const clean = (kids) => kids.flat().filter((c) => c != null && c !== false && c !== '');
+const clean = (kids) => kids.flat(Infinity).filter((c) => c != null && c !== false && c !== '');
 const fill = (node, ...kids) => node.replaceChildren(...clean(kids));
 const ICONS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
@@ -43,6 +43,7 @@ const ICONS = {
   file: '<path d="M14 3.5H7.5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8z"/><path d="M14 3.5V8h4.5"/>',
   folder: '<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
   back: '<path d="M15 5l-7 7 7 7"/>',
+  chevron: '<path d="M9 6l6 6-6 6"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
 };
 function icon(name) {
@@ -436,7 +437,6 @@ const KIND_LABEL = Object.fromEntries(KINDS);
 const PLACEHOLDER = { chat: 'Message Experiment AI', image: 'Describe an image to make', video: 'Describe a video to make' };
 const modelById = (id) => MODELS.find((m) => m.id === id) || null;
 const modelsFor = (kind, brand) => MODELS.filter((m) => m.kind === kind && (!brand || m.brand === brand));
-const brandsFor = (kind) => Object.keys(BRANDS).filter((b) => modelsFor(kind, b).length);
 const effortsFor = (m) => (m.kind === 'chat' ? m.efforts || ['low', 'medium', 'high'] : []);
 // keep the effort if this model has it, otherwise the closest one it does have (image/video keep it for later)
 const fitEffort = (m, effort) => {
@@ -453,8 +453,8 @@ try {
   const c = JSON.parse(localStorage.getItem('ea.model'));
   if (c && modelById(c.model)) choice = { model: c.model, effort: fitEffort(modelById(c.model), c.effort) };
 } catch {}
-// which tab and brand the menu is showing (starts at the chosen model)
-let menuView = { kind: 'chat', brand: 'claude' };
+// which brand the menu has open (null = the list of 5 brands)
+let menuBrand = null;
 
 function setChoice(next) {
   const merged = { ...choice, ...next };
@@ -475,37 +475,43 @@ function renderModel() {
   if (!modelMenu.hidden) renderModelMenu();
 }
 
-function showMenuView(kind, brand) {
-  const brands = brandsFor(kind);
-  menuView = { kind, brand: brands.includes(brand) ? brand : brands[0] };
+function showBrand(brand) {
+  menuBrand = brand;
   renderModelMenu();
+  replay($('model-view'), brand ? 'slide-fwd' : 'slide-back');
+  placeMenu(modelMenu, 380);
 }
 
 function renderModelMenu() {
-  const { kind, brand } = menuView;
   const m = modelById(choice.model);
+  const view = $('model-view');
 
-  // Chat / Image / Video
-  const ki = KINDS.findIndex(([k]) => k === kind);
-  $('kind-tabs').style.setProperty('--i', ki);
-  fill($('kind-tabs'), KINDS.map(([k, label]) => el('button', {
-    type: 'button', class: 'kind-tab', role: 'tab', 'aria-selected': String(k === kind),
-    onclick: () => showMenuView(k, brand),
-  }, label)));
-
-  // brands on the left (only those with models of this kind), their models on the right
-  fill($('brand-col'), brandsFor(kind).map((b) => el('button', {
-    type: 'button', class: 'brand-opt', 'aria-pressed': String(b === brand),
-    onclick: () => showMenuView(kind, b),
-    onpointerenter: (e) => { if (e.pointerType === 'mouse' && b !== menuView.brand) showMenuView(kind, b); },
-  }, el('img', { src: BRANDS[b].logo, alt: '', width: '16', height: '16' }), el('span', { class: 'grow' }, BRANDS[b].name),
-    m.brand === b && m.kind === kind && el('span', { class: 'brand-dot', 'aria-hidden': 'true' }))));
-  fill($('model-col'), modelsFor(kind, brand).map((x) => el('button', {
-    type: 'button', class: 'menu-item model-opt', role: 'menuitemradio', 'aria-checked': String(x.id === choice.model),
-    title: x.note, onclick: () => setChoice({ model: x.id }),
-  },
-    el('span', { class: 'grow model-opt-name' }, x.name),
-    x.id === choice.model && icon('check'))));
+  if (!menuBrand) {
+    // the 5 brands
+    fill(view, Object.keys(BRANDS).map((b) => el('button', {
+      type: 'button', class: 'menu-item brand-row', 'aria-haspopup': 'true', onclick: () => showBrand(b),
+    },
+      el('img', { src: BRANDS[b].logo, alt: '', width: '18', height: '18' }),
+      el('span', { class: 'grow' }, BRANDS[b].name),
+      m.brand === b && el('span', { class: 'brand-current' }, shortName(m)),
+      icon('chevron'))));
+  } else {
+    // one brand: chat models, divider, image models, divider, video models
+    const sections = KINDS.map(([k]) => modelsFor(k, menuBrand)).filter((list) => list.length);
+    fill(view,
+      el('button', { type: 'button', class: 'back model-back', onclick: () => showBrand(null) },
+        icon('back'), el('img', { src: BRANDS[menuBrand].logo, alt: '', width: '16', height: '16' }), BRANDS[menuBrand].name),
+      sections.map((list, i) => [
+        i > 0 && el('div', { class: 'menu-sep model-sep', role: 'separator' }),
+        list.map((x) => el('button', {
+          type: 'button', class: 'menu-item model-opt', role: 'menuitemradio', 'aria-checked': String(x.id === choice.model),
+          title: x.note, onclick: () => setChoice({ model: x.id }),
+        },
+          el('span', { class: 'grow model-opt-name' }, x.name),
+          x.id === choice.model && icon('check'))),
+      ]),
+    );
+  }
 
   // effort: only for chat models
   const levels = effortsFor(m);
@@ -521,12 +527,11 @@ function renderModelMenu() {
 const modelMenuOpen = () => isShown(modelMenu);
 function openModelMenu() {
   closeMenu();
-  const m = modelById(choice.model);
-  menuView = { kind: m.kind, brand: m.brand }; // open on the chosen model's tab and brand
+  menuBrand = null; // always opens on the 5 brands
   renderModelMenu();
   showPop(modelMenu);
   modelBtn.setAttribute('aria-expanded', 'true');
-  placeMenu(modelMenu, 360);
+  placeMenu(modelMenu, 380);
 }
 function closeModelMenu() {
   hidePop(modelMenu);
