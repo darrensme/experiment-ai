@@ -203,6 +203,9 @@ function openChat(id) {
   currentId = id;
   attachments = [];
   closeMenu();
+  closeModelMenu();
+  // pick up where this chat left off
+  if (modelById(chat.model)) setChoice({ model: chat.model, effort: chat.effort || choice.effort });
   messagesEl.replaceChildren(...chat.messages.map(renderMessage));
   setChatting(true);
   renderSidebar();
@@ -288,8 +291,11 @@ composer.addEventListener('submit', (e) => {
     currentId = chat.id;
   }
   const files = attachments.flatMap((a) => a.files);
-  const msg = { text, at: now, attachments: attachments.map((a) => ({ kind: a.kind, name: a.name, count: a.files.length })), files };
+  const effort = hasEffort(modelById(choice.model)) ? choice.effort : null;
+  const msg = { text, at: now, model: choice.model, effort, attachments: attachments.map((a) => ({ kind: a.kind, name: a.name, count: a.files.length })), files };
   chat.messages.push(msg);
+  chat.model = choice.model;
+  chat.effort = choice.effort;
   chat.updatedAt = now;
   if (chat.projectId && files.length) addFilesToProject(chat.projectId, files);
   saveChats();
@@ -306,27 +312,124 @@ composer.addEventListener('submit', (e) => {
   input.focus();
 });
 
+/* ── Model and effort picker ── */
+// Logos are the AIs' own marks (Claude, GPT, Gemini, Meta AI/Muse, Grok), not the companies'.
+const AIS = {
+  claude: { name: 'Claude', logo: '/assets/ai/claude-color.svg' },
+  gpt: { name: 'GPT', logo: '/assets/ai/openai.svg' },
+  gemini: { name: 'Gemini', logo: '/assets/ai/gemini-color.svg' },
+  muse: { name: 'Muse', logo: '/assets/ai/metaai-color.svg' },
+  grok: { name: 'Grok', logo: '/assets/ai/grok.svg' },
+};
+// effort: false = the model has no effort setting
+const MODELS = [
+  { id: 'claude-fable-5-1', ai: 'claude', name: 'Claude Fable 5.1', note: 'Most capable, for long-running work' },
+  { id: 'claude-opus-5-5', ai: 'claude', name: 'Claude Opus 5.5', note: 'Deep reasoning and coding' },
+  { id: 'claude-sonnet-5-5', ai: 'claude', name: 'Claude Sonnet 5.5', note: 'Smart and fast, a great everyday pick' },
+  { id: 'claude-haiku-5-5', ai: 'claude', name: 'Claude Haiku 5.5', note: 'Fastest Claude' },
+  { id: 'gpt-6-astra', ai: 'gpt', name: 'GPT-6 Astra', note: 'Complex reasoning and coding' },
+  { id: 'gpt-6.1-sol', ai: 'gpt', name: 'GPT-6.1 Sol', note: 'Balances intelligence and cost' },
+  { id: 'gpt-6.1-terra', ai: 'gpt', name: 'GPT-6.1 Terra', note: 'Fast, good at visuals and writing' },
+  { id: 'gpt-6-luna', ai: 'gpt', name: 'GPT-6 Luna', note: 'Quick and low-cost' },
+  { id: 'gemini-4-argon', ai: 'gemini', name: 'Gemini 4 Argon', note: "Google's newest flagship" },
+  { id: 'gemini-3.1-pro-preview', ai: 'gemini', name: 'Gemini 3.1 Pro', note: 'Strong reasoning, long documents' },
+  { id: 'gemini-3.8-flash', ai: 'gemini', name: 'Gemini 3.8 Flash', note: 'Fast and capable' },
+  { id: 'gemini-3.5-flash-lite', ai: 'gemini', name: 'Gemini 3.5 Flash-Lite', note: 'Fastest, lowest cost', effort: false },
+  { id: 'muse-wonder-1.0', ai: 'muse', name: 'Muse Wonder', note: "Meta's most capable", effort: false },
+  { id: 'muse-spark-1.3', ai: 'muse', name: 'Muse Spark 1.3', note: 'Quick everyday model', effort: false },
+  { id: 'grok-4.7', ai: 'grok', name: 'Grok 4.7', note: 'Coding, agents and knowledge work' },
+  { id: 'grok-4.6', ai: 'grok', name: 'Grok 4.6', note: 'The previous Grok' },
+];
+const EFFORTS = [['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['max', 'Max']];
+const modelById = (id) => MODELS.find((m) => m.id === id) || null;
+const hasEffort = (m) => m.effort !== false;
+const shortName = (m) => m.name.replace(/^Claude /, '');
+const modelMenu = $('model-menu');
+const modelBtn = $('model-btn');
+
+let choice = { model: 'claude-sonnet-5-5', effort: 'medium' };
+try {
+  const c = JSON.parse(localStorage.getItem('ea.model'));
+  if (c && modelById(c.model)) choice = { model: c.model, effort: EFFORTS.some(([k]) => k === c.effort) ? c.effort : 'medium' };
+} catch {}
+
+function setChoice(next) {
+  choice = { ...choice, ...next };
+  try { localStorage.setItem('ea.model', JSON.stringify(choice)); } catch {}
+  renderModel();
+}
+
+function renderModel() {
+  const m = modelById(choice.model);
+  $('model-logo').src = AIS[m.ai].logo;
+  $('model-name').textContent = shortName(m);
+  $('model-effort').textContent = hasEffort(m) ? EFFORTS.find(([k]) => k === choice.effort)[1] : '';
+  $('model-effort').hidden = !hasEffort(m);
+  modelBtn.title = `${m.name}${hasEffort(m) ? ` · ${$('model-effort').textContent} effort` : ''}`;
+  modelBtn.setAttribute('aria-label', `Model: ${modelBtn.title}`);
+  if (!modelMenu.hidden) renderModelMenu();
+}
+
+function renderModelMenu() {
+  const groups = Object.entries(AIS).map(([key, ai]) => el('div', { class: 'model-group', role: 'group', 'aria-label': ai.name },
+    el('div', { class: 'model-group-head' }, el('img', { src: ai.logo, alt: '', width: '16', height: '16' }), ai.name),
+    MODELS.filter((m) => m.ai === key).map((m) => el('button', {
+      type: 'button', class: 'menu-item model-opt', role: 'menuitemradio', 'aria-checked': String(m.id === choice.model),
+      onclick: () => setChoice({ model: m.id }),
+    },
+      el('span', { class: 'grow' }, el('span', { class: 'model-opt-name' }, m.name), el('small', {}, m.note)),
+      m.id === choice.model && icon('check')))));
+  fill($('model-groups'), groups);
+
+  const m = modelById(choice.model);
+  const on = hasEffort(m);
+  $('effort-note').textContent = on ? 'How hard it thinks before answering' : `${m.name} doesn't have effort settings`;
+  fill($('effort-seg'), EFFORTS.map(([k, label]) => el('button', {
+    type: 'button', class: 'effort-opt', role: 'radio', 'aria-checked': String(on && k === choice.effort), disabled: !on,
+    onclick: () => setChoice({ effort: k }),
+  }, label)));
+}
+
+const modelMenuOpen = () => !modelMenu.hidden;
+function openModelMenu() {
+  closeMenu();
+  renderModelMenu();
+  modelMenu.hidden = false;
+  modelBtn.setAttribute('aria-expanded', 'true');
+  placeMenu(modelMenu);
+  modelMenu.querySelector('[aria-checked="true"]')?.scrollIntoView({ block: 'nearest' });
+}
+function closeModelMenu() {
+  modelMenu.hidden = true;
+  modelBtn.setAttribute('aria-expanded', 'false');
+}
+modelBtn.addEventListener('click', () => (modelMenuOpen() ? closeModelMenu() : openModelMenu()));
+document.addEventListener('pointerdown', (e) => {
+  if (modelMenuOpen() && !modelMenu.contains(e.target) && !modelBtn.contains(e.target)) closeModelMenu();
+});
+
 /* ── + menu: upload files / a folder, add to a project, save to memory ── */
 const menuOpen = () => !plusMenu.hidden;
 function openMenu() {
+  closeModelMenu();
   memoryToggle.checked = settings().memory;
   renderMenuProjects();
   $('menu-projects').hidden = true;
   $('menu-project-btn').setAttribute('aria-expanded', 'false');
   plusMenu.hidden = false;
   plusBtn.setAttribute('aria-expanded', 'true');
-  placeMenu();
+  placeMenu(plusMenu);
 }
 // open below the bar if it fits, otherwise above (whichever side has more room), and never off-screen
-function placeMenu() {
+function placeMenu(menu) {
   const r = composer.getBoundingClientRect();
   const below = window.innerHeight - r.bottom - 16;
   const above = r.top - 16;
-  plusMenu.style.maxHeight = '';
-  const h = plusMenu.scrollHeight;
+  menu.style.maxHeight = '';
+  const h = menu.scrollHeight;
   const down = below >= h || below >= above;
-  plusMenu.classList.toggle('down', down);
-  plusMenu.style.maxHeight = `${Math.max(160, Math.min(h, down ? below : above))}px`;
+  menu.classList.toggle('down', down);
+  menu.style.maxHeight = `${Math.max(160, Math.min(h, down ? below : above))}px`;
 }
 function closeMenu() {
   plusMenu.hidden = true;
@@ -347,7 +450,7 @@ $('menu-project-btn').addEventListener('click', () => {
   const list = $('menu-projects');
   list.hidden = !list.hidden;
   $('menu-project-btn').setAttribute('aria-expanded', String(!list.hidden));
-  placeMenu();
+  placeMenu(plusMenu);
 });
 memoryToggle.addEventListener('change', () => {
   settings().memory = memoryToggle.checked;
@@ -640,6 +743,7 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.key !== 'Escape') return;
   if (menuOpen()) { closeMenu(); plusBtn.focus(); }
+  else if (modelMenuOpen()) { closeModelMenu(); modelBtn.focus(); }
   else if (searchOpen()) closeSearch();
   else if (projectsOpen()) closeProjects();
   else if (phone.matches) setSidebar(false);
@@ -649,5 +753,6 @@ document.addEventListener('keydown', (e) => {
 projectsEl.inert = true;
 newGreeting();
 renderSidebar();
+renderModel();
 renderChips();
 if (!phone.matches) input.focus();
