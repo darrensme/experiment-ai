@@ -71,16 +71,26 @@ newGreeting();
 /* ── New chat: back to the home screen ── */
 document.getElementById('new-chat').addEventListener('click', () => {
   messages.replaceChildren();
-  app.classList.remove('has-messages');
+  setChatting(false);
   newGreeting();
   if (phone.matches) setSidebar(false);
   input.focus();
 });
 
-/* ── Message bar ── */
+/* ── Message bar: under the greeting on home, glides to the bottom once chatting starts ── */
+let glideTimer;
+function setChatting(on) {
+  if (app.classList.contains('has-messages') === on) return;
+  composer.classList.add('gliding');
+  app.classList.toggle('has-messages', on);
+  clearTimeout(glideTimer);
+  glideTimer = setTimeout(() => composer.classList.remove('gliding'), 750);
+}
+
 function autosize() {
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+  composer.style.setProperty('--ch', composer.offsetHeight + 'px');
   send.disabled = !input.value.trim();
 }
 input.addEventListener('input', autosize);
@@ -102,7 +112,7 @@ composer.addEventListener('submit', (e) => {
   li.className = 'msg';
   li.textContent = text;
   messages.append(li);
-  app.classList.add('has-messages');
+  setChatting(true);
   thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' });
 
   input.value = '';
@@ -110,4 +120,5 @@ composer.addEventListener('submit', (e) => {
   input.focus();
 });
 
+autosize();
 if (!phone.matches) input.focus();
