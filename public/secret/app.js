@@ -405,9 +405,9 @@ function renderModelMenu() {
     el('div', { class: 'model-group-head' }, el('img', { src: ai.logo, alt: '', width: '16', height: '16' }), ai.name),
     MODELS.filter((m) => m.ai === key).map((m) => el('button', {
       type: 'button', class: 'menu-item model-opt', role: 'menuitemradio', 'aria-checked': String(m.id === choice.model),
-      onclick: () => setChoice({ model: m.id }),
+      title: m.note, onclick: () => setChoice({ model: m.id }),
     },
-      el('span', { class: 'grow' }, el('span', { class: 'model-opt-name' }, m.name), el('small', {}, m.note)),
+      el('span', { class: 'grow model-opt-name' }, m.name),
       m.id === choice.model && icon('check')))));
   fill($('model-groups'), groups);
 
@@ -426,7 +426,7 @@ function openModelMenu() {
   renderModelMenu();
   showPop(modelMenu);
   modelBtn.setAttribute('aria-expanded', 'true');
-  placeMenu(modelMenu);
+  placeMenu(modelMenu, 330); // compact: the list scrolls
   modelMenu.querySelector('[aria-checked="true"]')?.scrollIntoView({ block: 'nearest' });
 }
 function closeModelMenu() {
@@ -437,6 +437,35 @@ modelBtn.addEventListener('click', () => (modelMenuOpen() ? closeModelMenu() : o
 document.addEventListener('pointerdown', (e) => {
   if (modelMenuOpen() && !modelMenu.contains(e.target) && !modelBtn.contains(e.target)) closeModelMenu();
 });
+
+/* ── Account (bottom of the sidebar): Settings, Usage, Upgrade plan, Learn more ── */
+const accountMenu = $('account-menu');
+const accountBtn = $('account-btn');
+const accountOpen = () => isShown(accountMenu);
+function openAccount() {
+  closeMenu();
+  closeModelMenu();
+  $('learn-links').hidden = true;
+  $('learn-btn').setAttribute('aria-expanded', 'false');
+  showPop(accountMenu);
+  accountBtn.setAttribute('aria-expanded', 'true');
+}
+function closeAccount() {
+  hidePop(accountMenu);
+  accountBtn.setAttribute('aria-expanded', 'false');
+}
+accountBtn.addEventListener('click', () => (accountOpen() ? closeAccount() : openAccount()));
+document.addEventListener('pointerdown', (e) => {
+  if (accountOpen() && !accountMenu.contains(e.target) && !accountBtn.contains(e.target)) closeAccount();
+});
+// Settings, Usage and Upgrade plan don't do anything yet
+accountMenu.querySelectorAll('[data-soon]').forEach((b) => b.addEventListener('click', closeAccount));
+$('learn-btn').addEventListener('click', () => {
+  const links = $('learn-links');
+  links.hidden = !links.hidden;
+  $('learn-btn').setAttribute('aria-expanded', String(!links.hidden));
+});
+accountMenu.querySelectorAll('a').forEach((a) => a.addEventListener('click', closeAccount));
 
 /* ── + menu: upload files / a folder, add to a project, save to memory ── */
 const menuOpen = () => isShown(plusMenu);
@@ -451,12 +480,12 @@ function openMenu() {
   placeMenu(plusMenu);
 }
 // open below the bar if it fits, otherwise above (whichever side has more room), and never off-screen
-function placeMenu(menu) {
+function placeMenu(menu, cap = Infinity) {
   const r = composer.getBoundingClientRect();
   const below = window.innerHeight - r.bottom - 16 - 28; // 28 = the model text under the bar
   const above = r.top - 16;
   menu.style.maxHeight = '';
-  const h = menu.scrollHeight;
+  const h = Math.min(menu.scrollHeight, cap);
   const down = below >= h || below >= above;
   menu.classList.toggle('down', down);
   menu.style.maxHeight = `${Math.max(160, Math.min(h, down ? below : above))}px`;
@@ -776,6 +805,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (menuOpen()) { closeMenu(); plusBtn.focus(); }
   else if (modelMenuOpen()) { closeModelMenu(); modelBtn.focus(); }
+  else if (accountOpen()) { closeAccount(); accountBtn.focus(); }
   else if (searchOpen()) closeSearch();
   else if (projectsOpen()) closeProjects();
   else if (phone.matches) setSidebar(false);
