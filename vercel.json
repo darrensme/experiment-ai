@@ -26,6 +26,10 @@
   ],
   "rewrites": [
     {
+      "source": "/api/connect/:tool/callback",
+      "destination": "/api/connectors?tool=:tool"
+    },
+    {
       "source": "/__/auth/:path*",
       "destination": "https://experiment-labs-ai.firebaseapp.com/__/auth/:path*"
     },
