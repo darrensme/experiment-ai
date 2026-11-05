@@ -6,10 +6,10 @@ import { HttpError, db } from './_shared.js';
 export const GATEWAY = 'https://ai-gateway.vercel.sh/v1';
 
 /* ── Plans. Budgets are AI cost in US dollars: a week is the plan's monthly price ÷ 4, a day is that ÷ 7.
-      Free counts as $3. A person's plan lives in Firestore at plans/{uid} { plan }, written only by the server
+      Free counts as $2. A person's plan lives in Firestore at plans/{uid} { plan }, written only by the server
       (later, by the Stripe webhook); no plan document means Free. ── */
 export const PLANS = ['free', 'light', 'pro', 'max-5x', 'max-10x'];
-const BUDGET_BASE = { free: 3, light: 10, pro: 20, 'max-5x': 100, 'max-10x': 200 };
+const BUDGET_BASE = { free: 2, light: 10, pro: 20, 'max-5x': 100, 'max-10x': 200 };
 export const budgetsFor = (plan) => ({ day: BUDGET_BASE[plan] / 4 / 7, week: BUDGET_BASE[plan] / 4 });
 
 export async function planOf(uid) {

@@ -1,5 +1,5 @@
 // Experiment AI app: sidebar (new chat, search, projects, saved chats), projects panel, message bar.
-// Chats and projects are saved in this browser (localStorage) for now. No AI replies yet.
+// Chats and projects are saved in this browser (localStorage) for now. Replies come from api/chat.js.
 
 const $ = (id) => document.getElementById(id);
 const app = $('app');
@@ -310,6 +310,7 @@ function openChat(id) {
 $('new-chat').addEventListener('click', () => goHome());
 
 function renderMessage(m) {
+  if (m.role === 'assistant') return el('li', { class: 'msg msg-ai' }, el('div', { class: 'msg-text' }, m.text));
   const li = el('li', { class: 'msg' });
   if (m.attachments?.length) {
     li.append(el('div', { class: 'msg-files' }, m.attachments.map((a) => el('span', { class: 'file-chip' },
@@ -325,7 +326,7 @@ function autosize() {
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 200) + 'px';
   app.style.setProperty('--ch', composer.offsetHeight + 'px');
-  send.disabled = !input.value.trim() && !attachments.length;
+  send.disabled = replying || (!input.value.trim() && !attachments.length);
 }
 input.addEventListener('input', autosize);
 
@@ -378,7 +379,7 @@ function titleFor(text, atts) {
 composer.addEventListener('submit', (e) => {
   e.preventDefault();
   const text = input.value.trim();
-  if (!text && !attachments.length) return;
+  if (replying || (!text && !attachments.length)) return;
 
   const now = Date.now();
   let chat = current();
@@ -407,7 +408,78 @@ composer.addEventListener('submit', (e) => {
   if (projectsOpen()) renderProjects();
   thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' });
   input.focus();
+  reply(chat);
 });
+
+/* ── AI replies: api/chat.js streams JSON lines ({ type: 'text' | 'error' | 'done' }). It uses your Settings
+      (name, style, language, about you, how to respond) and counts toward Settings → Usage. ── */
+let replying = false;
+const nearBottom = () => thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120;
+function toApi(chat) {
+  return chat.messages.map((m) => (m.role === 'assistant'
+    ? { role: 'assistant', content: m.text }
+    : { role: 'user', content: [m.text, m.attachments?.length && `[Attached: ${m.attachments.map((a) => a.name).join(', ')}]`].filter(Boolean).join('\n\n') }))
+    .filter((m) => m.content.trim());
+}
+async function reply(chat) {
+  const li = el('li', { class: 'msg msg-ai thinking', 'aria-label': 'Experiment AI is answering' },
+    el('span', { class: 'dots', 'aria-hidden': 'true' }, el('i'), el('i'), el('i')));
+  messagesEl.append(li);
+  thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' });
+  const body = el('div', { class: 'msg-text' });
+  let text = '';
+  let error = null;
+  const used = modelById(chat.model);
+  replying = true;
+  autosize();
+  try {
+    if (!window.eaAuth) throw new Error('Sign in to get answers.');
+    if (used?.kind !== 'chat') throw new Error(`Making ${used?.kind === 'video' ? 'videos' : 'images'} isn’t switched on yet. Pick a chat model.`);
+    const r = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await window.eaAuth.token()}` },
+      body: JSON.stringify({ model: chat.model, effort: chat.effort, memory: chat.memory, messages: toApi(chat) }),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Something went wrong. Please try again.');
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        let ev;
+        try { ev = JSON.parse(line); } catch { continue; }
+        if (ev.type === 'text') {
+          const stick = nearBottom();
+          if (!text) { li.classList.remove('thinking'); li.removeAttribute('aria-label'); fill(li, body); }
+          text += ev.text;
+          body.textContent = text;
+          if (stick) thread.scrollTop = thread.scrollHeight;
+        } else if (ev.type === 'error') error = ev.error;
+        else if (ev.type === 'done' && typeof usageData !== 'undefined') usageData = null; // Usage shows the new numbers
+      }
+    }
+    if (!text && !error) error = 'No answer came back. Please try again.';
+  } catch (err) {
+    error = err.message || 'Something went wrong. Please try again.';
+  }
+  replying = false;
+  autosize();
+  if (text) {
+    chat.messages.push({ role: 'assistant', text, at: Date.now(), model: chat.model });
+    chat.updatedAt = Date.now();
+    saveChats();
+  }
+  if (error) {
+    if (!text) fill(li);
+    li.classList.remove('thinking');
+    li.append(el('div', { class: 'msg-error' }, error));
+  }
+}
 
 /* ── Model and effort picker ── */
 // Five brands only, each shown with its AI's own mark (not the company's). Ids are Vercel AI Gateway ids.

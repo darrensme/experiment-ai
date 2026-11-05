@@ -82,8 +82,16 @@ async function afterSignIn() {
     showAvatar();
   } catch {}
   loadUsage().catch(() => {});
+  // back from connecting a tool: /home?connected=notion or /home?connect_error=…
+  const q = new URLSearchParams(location.search);
+  if (q.has('connected') || q.has('connect_error')) {
+    history.replaceState(null, '', '/home');
+    const tool = CONNECTORS.find((c) => c.id === q.get('connected'));
+    notice(tool ? `${tool.name} connected` : q.get('connect_error') || 'That tool wasn’t connected.');
+    openSettings('connectors');
+  }
   // back from Stripe Checkout: /home?checkout=cs_…
-  const id = new URLSearchParams(location.search).get('checkout');
+  const id = q.get('checkout');
   if (id) {
     history.replaceState(null, '', '/home');
     try {
@@ -330,6 +338,7 @@ async function renderBilling() {
     const up = pi.price > info.price;
     const price = billingCycle === 'yearly' ? `$${pi.price * 10}/year` : `$${pi.price}/month`;
     return el('div', { class: `plan-row${p === plan ? ' current' : ''}` },
+      el('img', { class: 'plan-row-icon', src: `/assets/plans/${p}.svg`, alt: '', width: '30', height: '30' }),
       el('div', { class: 'grow' }, el('strong', {}, pi.name), el('small', {}, pi.note)),
       el('span', { class: 'plan-price' }, price),
       isCurrent
@@ -342,7 +351,8 @@ async function renderBilling() {
     head('Billing', 'Your plan and payments.'),
     el('div', { class: 'plan-card' },
       el('div', { class: 'plan-card-top' },
-        el('div', {},
+        el('img', { class: 'plan-card-icon', src: `/assets/plans/${plan}.svg`, alt: '', width: '48', height: '48' }),
+        el('div', { class: 'grow' },
           el('small', {}, 'Current plan'),
           el('div', { class: 'plan-name' }, info.name, u.unlimited && el('span', { class: 'badge badge-gold' }, 'Unlimited'))),
         el('div', { class: 'plan-amount' }, el('strong', {}, priceText), el('small', {}, per))),
@@ -509,15 +519,40 @@ function renderPersonal() {
   );
 }
 
-/* ───────── Connectors ───────── */
-function renderConnectors() {
-  fill(settingsBody,
-    head('Connectors', 'Let Experiment AI use your other tools. Connect once and it works in every chat.'),
-    el('div', { class: 'set-group' }, CONNECTORS.map((c) => el('div', { class: 'set-row conn-row' },
-      el('span', { class: 'conn-logo' }, el('img', { src: c.logo, alt: '', width: '24', height: '24' })),
-      el('div', { class: 'grow' }, el('strong', {}, c.name), el('small', {}, c.note)),
-      el('span', { class: 'conn-state' }, 'Not connected'),
-      button('Connect', () => notice(`Connecting ${c.name} isn’t switched on yet. It’s coming soon.`), 'btn btn-sm')))),
+/* ───────── Connectors (api/connectors.js; each tool's sign-in comes back to /api/connect/<tool>/callback) ───────── */
+async function renderConnectors() {
+  const top = head('Connectors', 'Let Experiment AI use your other tools. Connect once and it works in every chat.');
+  fill(settingsBody, top, loading());
+  if (!signedIn()) { fill(settingsBody, top, el('div', { class: 'set-empty' }, el('p', {}, 'Sign in to connect your tools.'))); return; }
+  let list;
+  try { list = (await api('/api/connectors', { action: 'list' })).connectors; } catch (err) { if (settingsTab === 'connectors') fill(settingsBody, top, failed(err, renderConnectors)); return; }
+  if (settingsTab !== 'connectors') return;
+  const byTool = Object.fromEntries(list.map((c) => [c.tool, c]));
+
+  fill(settingsBody, top,
+    el('div', { class: 'set-group' }, CONNECTORS.map((c) => {
+      const s = byTool[c.id] || {};
+      let state = 'Not connected';
+      if (s.connected) state = s.account ? `Connected as ${s.account}` : 'Connected';
+      else if (!s.setUp) state = 'Not set up yet';
+      return el('div', { class: `set-row conn-row${s.connected ? ' on' : ''}` },
+        el('span', { class: 'conn-logo' }, el('img', { src: c.logo, alt: '', width: '24', height: '24' })),
+        el('div', { class: 'grow' }, el('strong', {}, c.name), el('small', {}, c.note)),
+        el('span', { class: 'conn-state' }, s.connected && el('i', { class: 'conn-dot' }), state),
+        s.connected
+          ? button('Disconnect', (e) => busy(e.currentTarget, async () => {
+              if (!confirm(`Disconnect ${c.name}? Experiment AI won’t be able to use it until you connect again.`)) return;
+              await api('/api/connectors', { action: 'disconnect', tool: c.id });
+              notice(`${c.name} disconnected`);
+              renderConnectors();
+            }))
+          : el('button', {
+              type: 'button', class: 'btn btn-sm', disabled: !s.setUp, title: s.setUp ? null : `${c.name} needs its sign-in keys added before it can connect`,
+              onclick: (e) => busy(e.currentTarget, async () => {
+                location.href = (await api('/api/connectors', { action: 'connect', tool: c.id })).url;
+              }),
+            }, 'Connect'));
+    })),
     el('p', { class: 'set-note' }, 'You choose what each tool shares, and you can disconnect at any time.'),
   );
 }

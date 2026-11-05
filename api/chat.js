@@ -53,7 +53,7 @@ export default handle(async (req, res) => {
   const instructions = system(promptFromProfile(profile, user, { memory: req.body?.memory === true && rank >= 1 }));
 
   const id = String(req.body?.model || '');
-  if (!(id in MODELS)) throw new HttpError(400, 'Pick a model first.');
+  if (!(id in MODELS)) throw new HttpError(400, id ? 'That model isn’t available yet. Pick another one.' : 'Pick a model first.');
   if (MODELS[id] > rank) throw new HttpError(403, 'That model comes with Light and up.');
   const wanted = String(req.body?.effort || 'medium').toLowerCase();
   if (!EFFORTS.includes(wanted)) throw new HttpError(400, 'Pick Low, Medium or High effort.');
