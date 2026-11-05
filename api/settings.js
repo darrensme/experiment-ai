@@ -6,13 +6,13 @@
 //   export                   → everything stored about them, as JSON
 //   signout-all              → signs them out on every device (Firebase revokes their sessions)
 import { HttpError, auth, db, handle, requireUser } from './_shared.js';
-import { requireAccess } from './_ai.js';
+import { requireVerified } from './_ai.js';
 import { readProfile, saveAvatar, saveMemories, saveSettings } from './_profile.js';
 import { chatsOf } from './chats.js';
 
 export default handle(async (req, res) => {
   const user = await requireUser(req);
-  requireAccess(user);
+  requireVerified(user);
   const action = String(req.body?.action || '');
 
   if (action === 'get') {

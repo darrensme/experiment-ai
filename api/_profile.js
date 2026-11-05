@@ -18,7 +18,7 @@ export const FIELDS = {
   defaultEffort: oneOf('low', 'medium', 'high'),
   memoryDefault: bool,
   theme: oneOf('auto', 'day', 'night'),
-  textSize: oneOf('small', 'default', 'large'),
+  textSize: oneOf('small', 'default', 'large', 'xlarge'),
   sendKey: oneOf('enter', 'mod-enter'),
   reduceMotion: bool,
   greetings: bool, // rotating creative greetings (off = plain "Good evening")

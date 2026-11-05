@@ -1,0 +1,523 @@
+// Settings window: Account, Billing, Usage, Personalization, Connectors.
+// Uses app.js's helpers ($, el, icon, fill, notice, MODELS, BRANDS, prefs …): both are plain scripts on the same page.
+// Server side: api/settings.js (profile, picture, export, sign out everywhere), api/usage.js (plan + usage),
+// api/checkout.js + api/billing-portal.js (Stripe), api/delete-account.js. Name changes go through Firebase (auth-app.js).
+
+const settingsLayer = $('settings');
+const settingsBody = $('settings-body');
+const TABS = [
+  ['account', 'Account', '<circle cx="12" cy="8.5" r="3.5"/><path d="M5 19.5c1.2-3.3 3.9-5 7-5s5.8 1.7 7 5"/>'],
+  ['billing', 'Billing', '<rect x="3.5" y="6" width="17" height="12" rx="2.5"/><path d="M3.5 10h17M7 14.5h3"/>'],
+  ['usage', 'Usage', '<path d="M5 20V11M12 20V5M19 20v-6"/>'],
+  ['personalization', 'Personalization', '<path d="M12 3.5a8.5 8.5 0 1 0 0 17c1 0 1.6-.8 1.6-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7h2a4.2 4.2 0 0 0 4.2-4.2C20.5 6.8 16.7 3.5 12 3.5z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10.5" cy="7.5" r="1"/><circle cx="15" cy="7.5" r="1"/>'],
+  ['connectors', 'Connectors', '<path d="M9 7V4M15 7V4M7 7h10v4a5 5 0 0 1-10 0zM12 16v4"/>'],
+];
+const PLAN_INFO = {
+  free: { name: 'Free', price: 0, note: 'Try it out' },
+  light: { name: 'Light', price: 10, note: 'Every model, everyday use' },
+  pro: { name: 'Pro', price: 20, note: 'Twice the usage of Light' },
+  'max-5x': { name: 'Max 5×', price: 100, note: '5× the usage of Pro' },
+  'max-10x': { name: 'Max 10×', price: 200, note: '10× the usage of Pro' },
+};
+const CONNECTORS = [
+  { id: 'google', name: 'Google Drive', logo: '/assets/tools/google-drive.svg', note: 'Pick files from your Drive to use in chats' },
+  { id: 'notion', name: 'Notion', logo: '/assets/tools/notion.svg', note: 'Search and read the pages you share' },
+  { id: 'github', name: 'GitHub', logo: '/assets/tools/github.svg', note: 'Read code, issues and pull requests' },
+  { id: 'canva', name: 'Canva', logo: '/assets/tools/canva.svg', note: 'Open, edit and create designs' },
+];
+
+let settingsTab = 'account';
+let profile = { avatar: null };   // from api/settings (custom picture)
+let usageData = null;             // from api/usage
+let usageAt = 0;
+let embedded = null;              // Stripe embedded checkout, while it's open
+let billingCycle = null;          // monthly / yearly picker in Billing
+
+/* ── Talking to the server ── */
+const signedIn = () => Boolean(window.eaAuth && account);
+async function api(path, body = {}) {
+  if (!signedIn()) throw new Error('Sign in to use this.');
+  const token = await window.eaAuth.token();
+  const r = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || 'Something went wrong. Please try again.');
+  return data;
+}
+async function loadUsage(force = false) {
+  if (!force && usageData && Date.now() - usageAt < 30_000) return usageData;
+  usageData = await api('/api/usage');
+  usageAt = Date.now();
+  renderPlanLabel();
+  return usageData;
+}
+function renderPlanLabel() {
+  if (!usageData) return;
+  $('account-plan').textContent = `${PLAN_INFO[usageData.plan]?.name || 'Free'} plan`;
+}
+
+/* ── Preferences: applied right away, kept in this browser (so the theme is right before the page draws, see
+      home.html) and saved to the account ── */
+function savePrefs(patch) {
+  Object.assign(prefs, patch);
+  try { localStorage.setItem('ea.prefs', JSON.stringify(prefs)); } catch {}
+  applyPrefs();
+  if (signedIn()) api('/api/settings', { action: 'save', settings: patch }).catch((err) => notice(err.message));
+}
+
+/* ── Once sign-in is known (called from app.js's setAccount) ── */
+async function afterSignIn() {
+  if (!signedIn()) return;
+  try {
+    const got = await api('/api/settings', { action: 'get' });
+    const synced = {};
+    for (const k of Object.keys(PREF_DEFAULTS)) if (got.settings?.[k] !== undefined) synced[k] = got.settings[k];
+    Object.assign(prefs, synced);
+    try { localStorage.setItem('ea.prefs', JSON.stringify(prefs)); } catch {}
+    applyPrefs();
+    profile.avatar = got.avatar || null;
+    showAvatar();
+  } catch {}
+  loadUsage().catch(() => {});
+  // back from Stripe Checkout: /home?checkout=cs_…
+  const id = new URLSearchParams(location.search).get('checkout');
+  if (id) {
+    history.replaceState(null, '', '/home');
+    try {
+      const { status, plan } = await api('/api/checkout-status', { sessionId: id });
+      if (status === 'complete') {
+        notice(plan ? `You're on ${PLAN_INFO[plan]?.name || plan} now. Thanks!` : 'Payment received. Your plan will switch on in a moment.');
+        await loadUsage(true);
+        openSettings('billing');
+      } else notice('Checkout wasn’t finished, so nothing was charged.');
+    } catch (err) { notice(err.message); }
+  }
+}
+// sidebar picture: your own upload, else your Google photo, else the potion
+function showAvatar() {
+  const pfp = $('account-pfp');
+  const src = profile.avatar || account?.photo || '/assets/potion-orb-icon-pfp.png';
+  if (pfp.getAttribute('src') !== src) pfp.src = src;
+}
+const avatarSrc = () => profile.avatar || account?.photo || '/assets/potion-orb-icon-pfp.png';
+
+/* ── Open / close ── */
+const settingsOpen = () => isShown(settingsLayer);
+function openSettings(tab = 'account') {
+  closeAccount();
+  closeMenu();
+  closeModelMenu();
+  showPop(settingsLayer);
+  showTab(tab);
+  if (phone.matches) setSidebar(false);
+}
+function closeSettings() {
+  closeCheckout();
+  hidePop(settingsLayer);
+}
+$('settings-close').addEventListener('click', closeSettings);
+settingsLayer.addEventListener('pointerdown', (e) => { if (e.target === settingsLayer) closeSettings(); });
+
+function svgIcon(paths) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', 'ico');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.innerHTML = paths;
+  return svg;
+}
+fill($('settings-tabs'), TABS.map(([key, label, paths]) => el('button', {
+  type: 'button', class: 'settings-tab', role: 'tab', id: `tab-${key}`, 'aria-controls': 'settings-body', onclick: () => showTab(key),
+}, svgIcon(paths), label)));
+
+function showTab(tab) {
+  closeCheckout();
+  settingsTab = tab;
+  document.querySelectorAll('.settings-tab').forEach((b) => {
+    const on = b.id === `tab-${tab}`;
+    b.setAttribute('aria-selected', String(on));
+    b.tabIndex = on ? 0 : -1;
+    if (on && phone.matches) b.scrollIntoView({ block: 'nearest', inline: 'center' });
+  });
+  settingsBody.setAttribute('aria-labelledby', `tab-${tab}`);
+  ({ account: renderAccount, billing: renderBilling, usage: renderUsage, personalization: renderPersonal, connectors: renderConnectors })[tab]();
+  settingsBody.scrollTop = 0;
+  replay(settingsBody, 'view-in');
+}
+// arrow keys move between tabs
+$('settings-tabs').addEventListener('keydown', (e) => {
+  if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+  e.preventDefault();
+  const i = TABS.findIndex(([k]) => k === settingsTab);
+  const next = TABS[(i + (e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : -1) + TABS.length) % TABS.length][0];
+  showTab(next);
+  $(`tab-${next}`).focus();
+});
+
+/* ── Building blocks ── */
+const head = (title, sub) => el('div', { class: 'set-head' }, el('h3', {}, title), sub && el('p', {}, sub));
+const group = (label, ...rows) => [label && el('h4', { class: 'set-label' }, label), el('div', { class: 'set-group' }, rows)];
+const row = (title, desc, ...controls) => el('div', { class: 'set-row' },
+  el('div', { class: 'grow' }, el('strong', {}, title), desc && el('small', {}, desc)), controls);
+const button = (label, onclick, cls = 'btn btn-ghost btn-sm') => el('button', { type: 'button', class: cls, onclick }, label);
+function seg(label, options, value, onPick) {
+  const at = Math.max(0, options.findIndex(([v]) => v === value));
+  const box = el('div', { class: 'effort-seg seg', role: 'radiogroup', 'aria-label': label, style: `--n:${options.length};--i:${at}` });
+  fill(box, options.map(([v, text], j) => el('button', {
+    type: 'button', class: 'effort-opt', role: 'radio', 'aria-checked': String(j === at),
+    onclick: () => {
+      box.style.setProperty('--i', j);
+      box.querySelectorAll('.effort-opt').forEach((b, k) => b.setAttribute('aria-checked', String(k === j)));
+      onPick(v);
+    },
+  }, text)));
+  return box;
+}
+const toggle = (label, checked, onChange) => el('input', {
+  type: 'checkbox', class: 'toggle', role: 'switch', 'aria-label': label, checked, onchange: (e) => onChange(e.target.checked),
+});
+const loading = () => el('p', { class: 'set-loading' }, el('span', { class: 'spinner' }), 'Loading…');
+const failed = (err, retry) => el('div', { class: 'set-empty' }, el('p', {}, err.message), retry && button('Try again', retry));
+// buttons that call the server: disabled and "…" while it runs
+async function busy(btn, work) {
+  if (btn.disabled) return;
+  const text = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '…';
+  try { await work(); } catch (err) { notice(err.message); } finally { if (btn.isConnected) { btn.disabled = false; btn.textContent = text; } }
+}
+const fmtDate = (sec) => new Date(sec * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+
+/* ───────── Account ───────── */
+function renderAccount() {
+  if (!signedIn()) {
+    fill(settingsBody, head('Account'), el('div', { class: 'set-empty' }, el('p', {}, 'This is a preview, so there’s no account here. Sign in on secret.experimentai.dev to manage yours.')));
+    return;
+  }
+  const picker = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', hidden: true, onchange: (e) => changeAvatar(e) });
+  const name = el('input', { class: 'field', id: 'set-name', maxlength: '60', value: account.name, autocomplete: 'name' });
+  const saveName = el('button', { type: 'submit', class: 'btn btn-sm' }, 'Save');
+  const google = account.providers?.includes('google.com');
+
+  fill(settingsBody,
+    head('Account', 'Your name, picture and account.'),
+    group('Profile',
+      el('div', { class: 'set-row' },
+        el('img', { class: 'avatar avatar-lg', src: avatarSrc(), alt: '', width: '64', height: '64', referrerpolicy: 'no-referrer' }),
+        el('div', { class: 'grow' }, el('strong', {}, 'Profile picture'), el('small', {}, profile.avatar ? 'Your own picture.' : google && account.photo ? 'From your Google account.' : 'PNG, JPEG or WebP.')),
+        button(profile.avatar ? 'Change' : 'Upload', () => picker.click()),
+        profile.avatar && button('Remove', (e) => busy(e.currentTarget, async () => {
+          profile.avatar = (await api('/api/settings', { action: 'avatar', image: null })).avatar;
+          showAvatar();
+          renderAccount();
+        })),
+        picker),
+      el('form', {
+        class: 'set-row set-row-field',
+        onsubmit: (e) => {
+          e.preventDefault();
+          const n = norm(name.value);
+          if (!n) { name.focus(); return; }
+          if (n === account.name) return;
+          busy(saveName, async () => {
+            await window.eaAuth.updateName(n);
+            account.name = n;
+            $('account-name').textContent = n;
+            notice('Name saved');
+          });
+        },
+      },
+        el('label', { class: 'grow', for: 'set-name' }, el('strong', {}, 'Name'), el('small', {}, 'Shown in the sidebar.')),
+        name, saveName),
+      row('Email', account.email, google && el('span', { class: 'badge' }, 'Google')),
+    ),
+    group('Sign in',
+      row('Log out', 'Sign out on this device.', button('Log out', () => logOut())),
+      row('Log out of all devices', 'Signs you out everywhere, including here.', button('Log out everywhere', (e) => busy(e.currentTarget, async () => {
+        if (!confirm('Log out of Experiment AI on every device?')) return;
+        await api('/api/settings', { action: 'signout-all' });
+        await logOut();
+      }))),
+    ),
+    group('Your data',
+      row('Export your data', 'Download your account, settings, plan, usage and chats as a JSON file.', button('Export', (e) => busy(e.currentTarget, exportData))),
+    ),
+    group('Danger zone',
+      el('div', { class: 'set-row' },
+        el('div', { class: 'grow' }, el('strong', {}, 'Delete account'), el('small', {}, 'Deletes your account, settings, usage and saved chats for good. A paid plan is cancelled right away.')),
+        button('Delete account', (e) => busy(e.currentTarget, deleteAccount), 'btn btn-sm btn-red')),
+    ),
+  );
+}
+
+async function logOut() {
+  try { await window.eaAuth.signOut(); } finally { location.replace('/'); }
+}
+
+// crop to a centred square, 256×256 JPEG
+async function changeAvatar(e) {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  if (file.size > 15 * 1048576) { notice('That picture is too big. Try one under 15 MB.'); return; }
+  try {
+    const url = URL.createObjectURL(file);
+    const img = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = url; });
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, 256, 256);
+    ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 256, 256);
+    URL.revokeObjectURL(url);
+    profile.avatar = (await api('/api/settings', { action: 'avatar', image: c.toDataURL('image/jpeg', 0.86) })).avatar;
+    showAvatar();
+    if (settingsTab === 'account') renderAccount();
+    notice('Picture updated');
+  } catch (err) {
+    notice(err?.message || 'That picture couldn’t be read. Try a JPEG or PNG.');
+  }
+}
+
+async function exportData() {
+  const data = await api('/api/settings', { action: 'export' });
+  data.inThisBrowser = { chats, projects }; // chats and projects are kept in this browser for now
+  delete data.note;
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+  el('a', { href: url, download: 'experiment-ai-data.json' }).click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+async function deleteAccount() {
+  if (!confirm('Delete your Experiment AI account? Your settings, usage and saved chats are deleted for good, and a paid plan is cancelled right away.')) return;
+  if ((prompt('To confirm, type DELETE') || '').trim().toUpperCase() !== 'DELETE') { notice('Account not deleted.'); return; }
+  await api('/api/delete-account');
+  try { Object.keys(localStorage).filter((k) => k.startsWith('ea.')).forEach((k) => localStorage.removeItem(k)); } catch {}
+  await logOut();
+}
+
+/* ───────── Billing (plan and payments only; usage has its own tab) ───────── */
+async function renderBilling() {
+  fill(settingsBody, head('Billing', 'Your plan and payments.'), loading());
+  if (!signedIn()) { fill(settingsBody, head('Billing'), el('div', { class: 'set-empty' }, el('p', {}, 'Sign in to see your plan.'))); return; }
+  let u;
+  try { u = await loadUsage(true); } catch (err) { if (settingsTab === 'billing') fill(settingsBody, head('Billing'), failed(err, renderBilling)); return; }
+  if (settingsTab !== 'billing' || embedded) return;
+
+  const plan = PLAN_INFO[u.plan] ? u.plan : 'free';
+  const info = PLAN_INFO[plan];
+  const b = u.billing;
+  const yearly = b?.billing === 'yearly';
+  billingCycle ||= yearly ? 'yearly' : 'monthly';
+  let status = 'No payment needed.';
+  if (plan !== 'free' && b) {
+    if (b.status === 'past_due') status = 'Your last payment didn’t go through. Update your card in Manage billing.';
+    else if (b.cancelAtPeriodEnd && b.periodEnd) status = `Cancelled. You keep ${info.name} until ${fmtDate(b.periodEnd)}.`;
+    else if (b.periodEnd) status = `Renews on ${fmtDate(b.periodEnd)}.`;
+  } else if (b?.status === 'unpaid' || b?.status === 'canceled') status = 'Your paid plan has ended.';
+
+  const priceText = plan === 'free' ? '$0' : yearly ? `$${info.price * 10}` : `$${info.price}`;
+  const per = plan === 'free' ? 'forever' : yearly ? 'per year' : 'per month';
+
+  const list = el('div', { class: 'plan-list' });
+  const drawPlans = () => fill(list, ['light', 'pro', 'max-5x', 'max-10x'].map((p) => {
+    const pi = PLAN_INFO[p];
+    const isCurrent = p === plan && (b?.billing || 'monthly') === billingCycle && !b?.cancelAtPeriodEnd;
+    const up = pi.price > info.price;
+    const price = billingCycle === 'yearly' ? `$${pi.price * 10}/year` : `$${pi.price}/month`;
+    return el('div', { class: `plan-row${p === plan ? ' current' : ''}` },
+      el('div', { class: 'grow' }, el('strong', {}, pi.name), el('small', {}, pi.note)),
+      el('span', { class: 'plan-price' }, price),
+      isCurrent
+        ? el('span', { class: 'badge badge-blue' }, 'Current')
+        : button(plan === 'free' || up ? 'Upgrade' : p === plan ? 'Switch' : 'Change', (e) => busy(e.currentTarget, () => choosePlan(p, plan)), up || plan === 'free' ? 'btn btn-sm' : 'btn btn-ghost btn-sm'));
+  }));
+  drawPlans();
+
+  fill(settingsBody,
+    head('Billing', 'Your plan and payments.'),
+    el('div', { class: 'plan-card' },
+      el('div', { class: 'plan-card-top' },
+        el('div', {},
+          el('small', {}, 'Current plan'),
+          el('div', { class: 'plan-name' }, info.name, u.unlimited && el('span', { class: 'badge badge-gold' }, 'Unlimited'))),
+        el('div', { class: 'plan-amount' }, el('strong', {}, priceText), el('small', {}, per))),
+      el('p', { class: 'plan-status' }, status),
+      b?.canManage && el('div', { class: 'plan-actions' },
+        button('Manage billing', (e) => busy(e.currentTarget, async () => {
+          location.href = (await api('/api/billing-portal')).url;
+        }), 'btn btn-sm')),
+      b?.canManage && el('small', { class: 'plan-foot' }, 'Change your card, see invoices or cancel in Stripe.')),
+    el('div', { class: 'set-label-row' },
+      el('h4', { class: 'set-label' }, plan === 'free' ? 'Upgrade' : 'Change plan'),
+      seg('Billing period', [['monthly', 'Monthly'], ['yearly', 'Yearly · 2 months free']], billingCycle, (v) => { billingCycle = v; drawPlans(); })),
+    list,
+    plan !== 'free' && el('p', { class: 'set-note' }, 'To go back to Free, cancel in Manage billing. You keep your plan until the end of what you’ve paid for.'),
+  );
+}
+
+async function choosePlan(p, current) {
+  const pi = PLAN_INFO[p];
+  if (current !== 'free' && !confirm(`Switch to ${pi.name} (${billingCycle})? The difference is charged or credited now.`)) return;
+  const r = await api('/api/checkout', { plan: p, billing: billingCycle });
+  if (r.changed) {
+    notice(`You're on ${PLAN_INFO[r.plan]?.name || pi.name} now`);
+    await loadUsage(true);
+    renderBilling();
+    return;
+  }
+  await openCheckout(r.clientSecret, r.publishableKey, pi.name);
+}
+
+// Stripe's embedded checkout, inside the Billing tab
+let stripeJs = null;
+function loadStripe() {
+  stripeJs ||= new Promise((ok, bad) => {
+    const s = el('script', { src: 'https://js.stripe.com/v3/' });
+    s.onload = () => ok(window.Stripe);
+    s.onerror = () => { stripeJs = null; bad(new Error('Couldn’t load the payment form. Check your connection and try again.')); };
+    document.head.append(s);
+  });
+  return stripeJs;
+}
+async function openCheckout(secret, key, planName) {
+  const Stripe = await loadStripe();
+  const box = el('div', { class: 'checkout', id: 'checkout' });
+  fill(settingsBody,
+    el('button', { type: 'button', class: 'back', onclick: () => { closeCheckout(); renderBilling(); } }, icon('back'), 'Billing'),
+    head(`Upgrade to ${planName}`, 'Payments are handled securely by Stripe.'),
+    box);
+  embedded = await Stripe(key).initEmbeddedCheckout({ fetchClientSecret: async () => secret });
+  if (box.isConnected) embedded.mount(box);
+  else closeCheckout();
+}
+function closeCheckout() {
+  if (!embedded) return;
+  try { embedded.destroy(); } catch {}
+  embedded = null;
+}
+
+/* ───────── Usage ───────── */
+async function renderUsage() {
+  fill(settingsBody, head('Usage', 'How much of your plan you’ve used.'), loading());
+  if (!signedIn()) { fill(settingsBody, head('Usage'), el('div', { class: 'set-empty' }, el('p', {}, 'Sign in to see your usage.'))); return; }
+  let u;
+  try { u = await loadUsage(true); } catch (err) { if (settingsTab === 'usage') fill(settingsBody, head('Usage'), failed(err, renderUsage)); return; }
+  if (settingsTab !== 'usage') return;
+
+  const pct = (spent, budget) => (budget > 0 ? Math.min(100, (spent / budget) * 100) : 0);
+  const show = (p) => (p > 0 && p < 1 ? '<1%' : `${Math.round(p)}%`);
+  const now = new Date();
+  const nextDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+  const nextWeek = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + (((8 - now.getUTCDay()) % 7) || 7)));
+  const time = (d) => d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const day = (d) => d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+
+  const meter = (title, p, reset) => el('div', { class: 'meter' },
+    el('div', { class: 'meter-top' }, el('strong', {}, title), el('span', { class: 'meter-pct' }, `${show(p)} used`)),
+    el('div', { class: `bar${p >= 100 ? ' full' : p >= 80 ? ' warn' : ''}`, role: 'progressbar', 'aria-label': title, 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(p)) },
+      el('i', { style: `--p:${p}%` })),
+    el('small', {}, reset));
+
+  const dayP = pct(u.spent.day, u.budgets.day);
+  const weekP = pct(u.spent.week, u.budgets.week);
+  const byKey = new Map(MODELS.map((m) => [m.id.replace(/[./]/g, '_'), m]));
+  const perModel = Object.entries(u.spent.models || {})
+    .map(([k, cost]) => ({ m: byKey.get(k), p: pct(cost, u.budgets.week), k }))
+    .filter((x) => x.p > 0)
+    .sort((a, b) => b.p - a.p);
+
+  const bars = el('div', { class: 'set-group meters' },
+    meter('Today', dayP, `Resets at ${time(nextDay)}`),
+    meter('This week', weekP, `Resets ${day(nextWeek)} at ${time(nextWeek)}`));
+  fill(settingsBody,
+    head('Usage', 'How much of your plan you’ve used.'),
+    u.unlimited && el('p', { class: 'set-note set-note-gold' }, 'Your account has no limits. Usage is still counted here.'),
+    el('h4', { class: 'set-label' }, `${PLAN_INFO[u.plan]?.name || 'Free'} plan`),
+    bars,
+    el('h4', { class: 'set-label' }, 'This week by model'),
+    perModel.length
+      ? el('div', { class: 'set-group' }, perModel.map(({ m, p, k }) => el('div', { class: 'set-row model-use' },
+          m ? el('img', { src: BRANDS[m.brand].logo, alt: '', width: '18', height: '18' }) : el('span', { class: 'dot' }),
+          el('div', { class: 'grow' },
+            el('div', { class: 'meter-top' }, el('strong', {}, m ? m.name : k), el('span', { class: 'meter-pct' }, show(p))),
+            el('div', { class: 'bar bar-thin' }, el('i', { style: `--p:${p}%` }))))))
+      : el('div', { class: 'set-group' }, el('p', { class: 'set-empty-row' }, 'Nothing used yet this week.')),
+    !u.unlimited && u.plan !== 'max-10x' && el('div', { class: 'set-upsell' },
+      el('span', {}, 'Need more room?'),
+      button(u.plan === 'free' ? 'Upgrade' : 'See plans', () => showTab('billing'), 'btn btn-sm')),
+  );
+  // let the bars grow in
+  requestAnimationFrame(() => settingsBody.querySelectorAll('.bar').forEach((b) => b.classList.add('grown')));
+}
+
+/* ───────── Personalization ───────── */
+function renderPersonal() {
+  const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  const nick = el('input', { class: 'field', id: 'set-nick', maxlength: '40', value: prefs.nickname, placeholder: account?.name || 'e.g. Sam' });
+  const lang = el('input', { class: 'field', id: 'set-lang', maxlength: '40', value: prefs.language, placeholder: 'Same as mine' });
+  const about = el('textarea', { class: 'field', id: 'set-about', rows: '3', maxlength: '1500', placeholder: 'e.g. I’m a student who loves robotics.' });
+  about.value = prefs.about;
+  const how = el('textarea', { class: 'field', id: 'set-how', rows: '3', maxlength: '3000', placeholder: 'e.g. Explain things simply and give examples.' });
+  how.value = prefs.instructions;
+  const style = el('select', { class: 'field', id: 'set-style' },
+    [['balanced', 'Balanced'], ['concise', 'Short and to the point'], ['detailed', 'Detailed'], ['friendly', 'Friendly'], ['formal', 'Formal']]
+      .map(([v, t]) => el('option', { value: v, selected: v === prefs.style }, t)));
+  const save = el('button', { type: 'submit', class: 'btn btn-sm' }, 'Save');
+
+  fill(settingsBody,
+    head('Personalization', 'How Experiment AI looks and talks to you.'),
+    group('Appearance',
+      row('Theme', 'Dark is a deep night-sky blue.',
+        seg('Theme', [['day', 'Light'], ['night', 'Dark'], ['auto', 'System']], prefs.theme, (v) => savePrefs({ theme: v }))),
+      row('Text size', 'For the whole app.',
+        seg('Text size', [['small', 'S'], ['default', 'M'], ['large', 'L'], ['xlarge', 'XL']], prefs.textSize, (v) => savePrefs({ textSize: v }))),
+      row('Reduce motion', 'Turn off sliding and shimmering effects.',
+        toggle('Reduce motion', prefs.reduceMotion, (v) => savePrefs({ reduceMotion: v }))),
+    ),
+    group('Chat',
+      row('Send messages with', prefs.sendKey === 'enter' ? 'Shift + Enter adds a new line.' : 'Enter adds a new line.',
+        seg('Send key', [['enter', 'Enter'], ['mod-enter', mac ? '⌘ Enter' : 'Ctrl Enter']], prefs.sendKey, (v) => { savePrefs({ sendKey: v }); renderPersonal(); })),
+      row('Creative greetings', 'A different greeting on the home screen each time.',
+        toggle('Creative greetings', prefs.greetings, (v) => { savePrefs({ greetings: v }); if (!currentId) newGreeting(); })),
+    ),
+    el('h4', { class: 'set-label' }, 'About you'),
+    el('form', {
+      class: 'set-group set-form',
+      onsubmit: (e) => {
+        e.preventDefault();
+        busy(save, async () => {
+          const patch = { nickname: nick.value.trim(), language: lang.value.trim(), about: about.value.trim(), instructions: how.value.trim(), style: style.value };
+          Object.assign(prefs, patch);
+          try { localStorage.setItem('ea.prefs', JSON.stringify(prefs)); } catch {}
+          if (signedIn()) await api('/api/settings', { action: 'save', settings: patch });
+          notice('Saved');
+        });
+      },
+    },
+      el('div', { class: 'two' },
+        el('label', {}, el('span', { class: 'field-label' }, 'What should Experiment AI call you?'), nick),
+        el('label', {}, el('span', { class: 'field-label' }, 'Reply language'), lang)),
+      el('label', {}, el('span', { class: 'field-label' }, 'Response style'), style),
+      el('label', {}, el('span', { class: 'field-label' }, 'Anything Experiment AI should know about you?'), about),
+      el('label', {}, el('span', { class: 'field-label' }, 'How should Experiment AI respond?'), how),
+      el('div', { class: 'form-actions' }, save)),
+  );
+}
+
+/* ───────── Connectors ───────── */
+function renderConnectors() {
+  fill(settingsBody,
+    head('Connectors', 'Let Experiment AI use your other tools. Connect once and it works in every chat.'),
+    el('div', { class: 'set-group' }, CONNECTORS.map((c) => el('div', { class: 'set-row conn-row' },
+      el('span', { class: 'conn-logo' }, el('img', { src: c.logo, alt: '', width: '24', height: '24' })),
+      el('div', { class: 'grow' }, el('strong', {}, c.name), el('small', {}, c.note)),
+      el('span', { class: 'conn-state' }, 'Not connected'),
+      button('Connect', () => notice(`Connecting ${c.name} isn’t switched on yet. It’s coming soon.`), 'btn btn-sm')))),
+    el('p', { class: 'set-note' }, 'You choose what each tool shares, and you can disconnect at any time.'),
+  );
+}

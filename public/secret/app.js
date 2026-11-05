@@ -90,6 +90,26 @@ function notice(text) {
   noticeTimer = setTimeout(() => n.classList.remove('show'), 3200);
 }
 
+/* ── Preferences (Settings → Personalization): theme, text size, motion, send key, greetings, and what the AI
+      knows about you. Kept here and in your account (settings.js syncs them); home.html applies the look early. ── */
+const PREF_DEFAULTS = {
+  theme: 'auto', textSize: 'default', reduceMotion: false, sendKey: 'enter', greetings: true,
+  nickname: '', about: '', instructions: '', style: 'balanced', language: '',
+};
+let prefs = { ...PREF_DEFAULTS };
+try { Object.assign(prefs, JSON.parse(localStorage.getItem('ea.prefs')) || {}); } catch {}
+function applyPrefs() {
+  const root = document.documentElement;
+  root.dataset.theme = prefs.theme;
+  root.dataset.text = prefs.textSize;
+  root.dataset.motion = prefs.reduceMotion ? 'reduce' : 'full';
+  const night = prefs.theme === 'night' || (prefs.theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', night ? '#0d1a33' : '#3a659b');
+  if (typeof autosize === 'function' && input) requestAnimationFrame(autosize); // text size changes the bar's height
+}
+applyPrefs();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyPrefs);
+
 /* ── Saved data (this browser) ── */
 function load(key) {
   try { const v = JSON.parse(localStorage.getItem(key)); return Array.isArray(v) ? v : []; } catch { return []; }
@@ -235,7 +255,9 @@ function newGreeting() {
   do { i = Math.floor(Math.random() * GREETINGS.length); } while (i === last && GREETINGS.length > 1);
   try { sessionStorage.setItem('greeting', String(i)); } catch {}
 
-  const [before, word, after] = GREETINGS[i];
+  const h = new Date().getHours();
+  const plain = ['Good ', h < 5 ? 'evening' : h < 12 ? 'morning' : h < 18 ? 'afternoon' : 'evening', '']; // greetings off
+  const [before, word, after] = prefs.greetings ? GREETINGS[i] : plain;
   greetingText.replaceChildren(before, el('span', { class: 'serif' }, word), after);
 
   greetingRow.classList.remove('fresh');
@@ -308,8 +330,11 @@ function autosize() {
 input.addEventListener('input', autosize);
 
 input.addEventListener('keydown', (e) => {
-  // Enter sends, Shift+Enter adds a line (not while an IME is composing)
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+  // Enter sends and Shift+Enter adds a line, or (Settings) ⌘/Ctrl+Enter sends and Enter adds a line.
+  // Never while an IME is composing.
+  if (e.key !== 'Enter' || e.isComposing) return;
+  const mod = e.metaKey || e.ctrlKey;
+  if (prefs.sendKey === 'mod-enter' ? mod : !e.shiftKey) {
     e.preventDefault();
     composer.requestSubmit();
   }
@@ -563,18 +588,21 @@ document.addEventListener('pointerdown', (e) => {
   if (accountOpen() && !accountMenu.contains(e.target) && !accountBtn.contains(e.target)) closeAccount();
 });
 // Called by auth-app.js once sign-in is known: your real name and picture (null = local preview, stays "Guest")
+let account = null; // { name, email, photo, providers }
 function setAccount(user) {
+  account = user;
   if (user) {
     $('account-name').textContent = user.name;
     accountBtn.title = user.email;
     const pfp = $('account-pfp');
     pfp.onerror = () => { pfp.onerror = null; pfp.src = '/assets/potion-orb-icon-pfp.png'; }; // fall back if the photo won't load
     if (user.photo) pfp.src = user.photo;
+    afterSignIn(); // settings.js: your saved settings, picture and plan
   }
   document.documentElement.classList.remove('auth-pending');
 }
-// Settings, Usage and Upgrade plan don't do anything yet
-accountMenu.querySelectorAll('[data-soon]').forEach((b) => b.addEventListener('click', closeAccount));
+// Settings opens on Account, Usage on Settings → Usage, Upgrade plan on Settings → Billing
+accountMenu.querySelectorAll('[data-settings]').forEach((b) => b.addEventListener('click', () => openSettings(b.dataset.settings)));
 $('learn-btn').addEventListener('click', () => {
   const links = $('learn-links');
   links.hidden = !links.hidden;
@@ -918,7 +946,8 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (e.key !== 'Escape') return;
-  if (menuOpen()) { closeMenu(); plusBtn.focus(); }
+  if (settingsOpen()) closeSettings();
+  else if (menuOpen()) { closeMenu(); plusBtn.focus(); }
   else if (modelMenuOpen()) { closeModelMenu(); modelBtn.focus(); }
   else if (accountOpen()) { closeAccount(); accountBtn.focus(); }
   else if (sortOpen()) { closeSort(); sortBtn.focus(); }

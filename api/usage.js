@@ -2,14 +2,14 @@
 // (dollars). The app shows these as percentages and uses the plan to unlock models and features.
 // A paid plan is re-checked with Stripe every few hours, in case a webhook was missed.
 import { db, handle, requireUser } from './_shared.js';
-import { budgetsFor, isUnlimited, planOf, readSpent, requireAccess } from './_ai.js';
+import { budgetsFor, isUnlimited, planOf, readSpent, requireVerified } from './_ai.js';
 import { stripe, syncSubscription } from './_stripe.js';
 
 const RECHECK_MS = 6 * 3600_000;
 
 export default handle(async (req, res) => {
   const user = await requireUser(req);
-  requireAccess(user);
+  requireVerified(user);
   let record = (await db().collection('plans').doc(user.uid).get()).data() || null;
   if (record?.subscriptionId && process.env.STRIPE_SECRET_KEY && Date.now() - (record.checkedAt || 0) > RECHECK_MS) {
     try {

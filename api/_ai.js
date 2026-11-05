@@ -35,6 +35,10 @@ const ACCESS = new Set([
 ]);
 const emailHash = (user) => user.email && createHash('sha256').update(user.email.trim().toLowerCase()).digest('hex');
 const isVerified = (user) => user.emailVerified || user.providerData.some((p) => p.providerId === 'google.com');
+// Settings and Usage are for every signed-in account with a confirmed email (the AI itself still needs access).
+export function requireVerified(user) {
+  if (!isVerified(user)) throw new HttpError(403, 'Please confirm your email first.');
+}
 export function requireAccess(user) {
   if (!isVerified(user) || !ACCESS.has(emailHash(user))) throw new HttpError(403, 'Experiment AI isn’t open to your account yet.');
 }
