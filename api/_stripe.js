@@ -15,9 +15,13 @@ const find = (re) => {
   }
   return null;
 };
+// a value without quotes, spaces or "NAME=" in front
+const clean = (name) => String(process.env[name] || '').trim().replace(/^[A-Z_]+=/, '').replace(/^["']|["']$/g, '').trim() || null;
+// The two variables are saved the other way round: the secret key is in STRIPE_PUBLISHABLE_KEY and the publishable
+// key in STRIPE_SECRET_KEY. A key recognised by its prefix (sk_/rk_ secret, pk_ publishable) wins; otherwise flip them.
 const stripeKeys = () => ({
-  secret: find(/\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]+/),
-  publishable: find(/\bpk_(?:live|test)_[A-Za-z0-9]+/),
+  secret: find(/\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]+/) || clean('STRIPE_PUBLISHABLE_KEY'),
+  publishable: find(/\bpk_(?:live|test)_[A-Za-z0-9]+/) || clean('STRIPE_SECRET_KEY'),
 });
 export const secretKey = () => stripeKeys().secret;
 // What each variable holds, by kind only (never the key): for the logs and the error message
