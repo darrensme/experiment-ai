@@ -3,7 +3,7 @@
 // A paid plan is re-checked with Stripe every few hours, in case a webhook was missed.
 import { db, handle, requireUser } from './_shared.js';
 import { budgetsFor, isUnlimited, planOf, readSpent, requireVerified } from './_ai.js';
-import { stripe, syncSubscription } from './_stripe.js';
+import { secretKey, stripe, syncSubscription } from './_stripe.js';
 
 const RECHECK_MS = 6 * 3600_000;
 
@@ -11,7 +11,7 @@ export default handle(async (req, res) => {
   const user = await requireUser(req);
   requireVerified(user);
   let record = (await db().collection('plans').doc(user.uid).get()).data() || null;
-  if (record?.subscriptionId && process.env.STRIPE_SECRET_KEY && Date.now() - (record.checkedAt || 0) > RECHECK_MS) {
+  if (record?.subscriptionId && secretKey() && Date.now() - (record.checkedAt || 0) > RECHECK_MS) {
     try {
       record = (await syncSubscription(await stripe().subscriptions.retrieve(record.subscriptionId))) || record;
     } catch (err) {

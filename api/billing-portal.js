@@ -1,10 +1,10 @@
 // POST /api/billing-portal — a link to Stripe's billing page for this person: cancel, change card, see invoices.
 // (Plan changes happen in the app's plans pop-up.) The portal's settings are made here on first use, once per mode.
 import { HttpError, db, handle, requireUser } from './_shared.js';
-import { siteOrigin, stripe } from './_stripe.js';
+import { secretKey, siteOrigin, stripe } from './_stripe.js';
 
 async function portalConfig(s) {
-  const mode = process.env.STRIPE_SECRET_KEY.startsWith('sk_live') ? 'live' : 'test';
+  const mode = /^(sk|rk)_live/.test(secretKey() || '') ? 'live' : 'test';
   const ref = db().collection('meta').doc(`stripePortal_${mode}`);
   const saved = (await ref.get()).data()?.id;
   if (saved) return saved;

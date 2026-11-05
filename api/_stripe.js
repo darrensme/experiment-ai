@@ -4,16 +4,24 @@
 import Stripe from 'stripe';
 import { HttpError, db } from './_shared.js';
 
+// The two keys are told apart by their prefix, not by which variable holds them (they were saved the other way round
+// once): sk_/rk_ is the secret key, pk_ the publishable one.
+const stripeKeys = () => {
+  const values = [process.env.STRIPE_SECRET_KEY, process.env.STRIPE_PUBLISHABLE_KEY].map((v) => (v || '').trim()).filter(Boolean);
+  return { secret: values.find((v) => /^(sk|rk)_/.test(v)) || null, publishable: values.find((v) => /^pk_/.test(v)) || null };
+};
+export const secretKey = () => stripeKeys().secret;
+
 let client = null;
 export function stripe() {
   if (client) return client;
-  const key = process.env.STRIPE_SECRET_KEY;
+  const key = secretKey();
   if (!key) throw new HttpError(503, 'Payments aren’t set up yet. Please try again later.');
   client = new Stripe(key, { appInfo: { name: 'Experiment AI' } });
   return client;
 }
 export const publishableKey = () => {
-  const key = process.env.STRIPE_PUBLISHABLE_KEY;
+  const key = stripeKeys().publishable;
   if (!key) throw new HttpError(503, 'Payments aren’t set up yet. Please try again later.');
   return key;
 };
