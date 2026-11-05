@@ -47,12 +47,16 @@ async function callback(req, res) {
   const tool = String(req.query.tool || '');
   const back = (q) => { res.statusCode = 302; res.setHeader('Location', `/home?${new URLSearchParams(q)}`); res.end(); };
   if (!PROVIDERS[tool]) return back({ connect_error: 'Unknown tool.' });
-  if (req.query.error) return back({ connect_error: `${PROVIDERS[tool].name} wasn’t connected.` }); // they said no
+  if (req.query.error) { // they said no, or the tool refused (bad scope, app not allowed…): say what it said
+    const why = String(req.query.error_description || req.query.error).slice(0, 200);
+    console.error('connect refused', tool, JSON.stringify({ error: req.query.error, description: req.query.error_description || null }));
+    return back({ connect_error: `${PROVIDERS[tool].name} wasn’t connected: ${why}` });
+  }
   try {
     await finishConnect(tool, String(req.query.state || ''), String(req.query.code || ''));
     back({ connected: tool });
   } catch (err) {
-    if (!(err instanceof HttpError)) console.error('connect', tool, err);
+    console.error('connect failed', tool, err instanceof HttpError ? err.message : err);
     back({ connect_error: err instanceof HttpError ? err.message : 'Something went wrong. Please try again.' });
   }
 }

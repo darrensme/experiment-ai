@@ -18,7 +18,8 @@ async function json(r, what) {
   const data = await r.json().catch(() => ({}));
   if (!r.ok) {
     console.error(what, r.status, JSON.stringify(data).slice(0, 400));
-    throw new HttpError(502, 'That sign-in didn’t work. Please try again.');
+    const why = data.error_description || data.message || data.error || `error ${r.status}`;
+    throw new HttpError(502, `That sign-in didn’t work (${String(why).slice(0, 160)}). Please try again.`);
   }
   return data;
 }
