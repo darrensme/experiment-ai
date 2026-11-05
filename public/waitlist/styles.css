@@ -282,14 +282,14 @@ h2 .serif { font-size: 1.12em; letter-spacing: -.01em; }
 .cmp.picked .cmp-pick { opacity: 1; transform: none; }
 
 /* tools */
-.tools { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 14px; align-content: center; }
+.tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 14px; align-content: center; }
 .tool {
   display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 14px;
   background: #fff; font-size: .9rem; font-weight: 500; box-shadow: 0 2px 8px rgba(15,35,70,.06);
 }
 .tool img { width: 20px; height: 20px; flex: none; object-fit: contain; }
 .tool b {
-  margin-left: auto; width: 34px; height: 20px; border-radius: 999px; background: #d9dee6; position: relative; transition: background .3s;
+  margin-left: auto; flex: none; width: 34px; height: 20px; border-radius: 999px; background: #d9dee6; position: relative; transition: background .3s;
 }
 .tool b::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); transition: transform .3s cubic-bezier(.2,1.4,.4,1); }
 .tool.on b { background: #2fa463; }
