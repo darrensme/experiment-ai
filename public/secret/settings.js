@@ -51,6 +51,22 @@ async function loadUsage(force = false) {
 function renderPlanLabel() {
   if (!usageData) return;
   $('account-plan').textContent = `${PLAN_INFO[usageData.plan]?.name || 'Free'} plan`;
+  // the Usage button under the message bar: today's share of the daily limit
+  const u = usageData;
+  const pct = u.budgets.day > 0 ? Math.min(100, (u.spent.day / u.budgets.day) * 100) : 0;
+  const btn = $('usage-btn');
+  btn.hidden = false;
+  btn.classList.toggle('warn', pct >= 80 && pct < 100);
+  btn.classList.toggle('full', pct >= 100);
+  $('usage-label').textContent = u.unlimited ? 'Usage' : `${pct > 0 && pct < 1 ? '<1' : Math.round(pct)}% used today`;
+  btn.title = u.unlimited ? 'Usage (no limits on your account)' : `${Math.round(pct)}% of today’s usage. Open Usage`;
+}
+$('usage-btn').addEventListener('click', () => openSettings('usage'));
+// refresh the % after each answer (app.js clears usageData when one finishes)
+let usageRefresh = null;
+function refreshUsageSoon() {
+  clearTimeout(usageRefresh);
+  usageRefresh = setTimeout(() => { if (signedIn()) loadUsage(true).catch(() => {}); }, 1500);
 }
 
 /* ── Preferences: applied right away, kept in this browser (so the theme is right before the page draws, see
@@ -180,7 +196,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 /* ── Once sign-in is known (called from app.js's setAccount) ── */
 async function afterSignIn() {
   if (!signedIn()) return;
-  syncFromAccount().catch((err) => notice(`Couldn’t load your chats: ${err.message}`));
+  syncFromAccount().then(() => pollVideos()).catch((err) => notice(`Couldn’t load your chats: ${err.message}`));
   try {
     const got = await api('/api/settings', { action: 'get' });
     const synced = {};
@@ -591,6 +607,8 @@ function renderPersonal() {
     [['balanced', 'Balanced'], ['concise', 'Short and to the point'], ['detailed', 'Detailed'], ['friendly', 'Friendly'], ['formal', 'Formal']]
       .map(([v, t]) => el('option', { value: v, selected: v === prefs.style }, t)));
   const save = el('button', { type: 'submit', class: 'btn btn-sm' }, 'Save');
+  const memoryBox = el('div', { class: 'set-group' }, el('p', { class: 'set-empty-row' }, signedIn() ? 'Loading…' : 'Sign in to see what Experiment AI remembers.'));
+  if (signedIn()) loadMemories(memoryBox);
 
   fill(settingsBody,
     head('Personalization', 'How Experiment AI looks and talks to you.'),
@@ -608,6 +626,8 @@ function renderPersonal() {
       row('Creative greetings', 'A different greeting on the home screen each time.',
         toggle('Creative greetings', prefs.greetings, (v) => { savePrefs({ greetings: v }); if (!currentId) newGreeting(); })),
     ),
+    el('h4', { class: 'set-label' }, 'Memory'),
+    memoryBox,
     el('h4', { class: 'set-label' }, 'About you'),
     el('form', {
       class: 'set-group set-form',
@@ -681,6 +701,44 @@ async function pickDrive() {
   } catch (err) {
     notice(err.message || 'Couldn’t open Google Drive.');
   }
+}
+
+/* ── Memory: what Experiment AI remembers about you (chats with Memory on can add to it; Light and up) ── */
+async function loadMemories(box) {
+  let list;
+  try { list = (await api('/api/settings', { action: 'get' })).memories || []; } catch (err) { fill(box, el('p', { class: 'set-empty-row' }, err.message)); return; }
+  const store = async (next, done) => {
+    list = (await api('/api/settings', { action: 'memories', memories: next })).memories;
+    draw();
+    if (done) notice(done);
+  };
+  const free = usageData && usageData.plan === 'free' && !usageData.unlimited;
+  const field = el('input', { class: 'field', maxlength: '400', placeholder: 'Add something to remember, e.g. I’m learning Spanish' });
+  const draw = () => fill(box,
+    free && el('p', { class: 'set-empty-row' }, 'Memory comes with Light and up. You can still add things here; chats will use them once you upgrade.'),
+    list.length
+      ? el('ul', { class: 'memory-list' }, list.map((m) => el('li', {},
+          el('span', {}, m.text),
+          el('button', {
+            type: 'button', class: 'chip-x', 'aria-label': `Forget “${m.text}”`, title: 'Forget this',
+            onclick: (e) => busy(e.currentTarget, () => store(list.filter((x) => x.id !== m.id), 'Forgotten')),
+          }, icon('x')))))
+      : el('p', { class: 'set-empty-row' }, 'Nothing yet. With Memory on in a chat (the + menu), Experiment AI saves useful things you tell it, like your name, your projects or how you like answers.'),
+    el('form', {
+      class: 'memory-add',
+      onsubmit: (e) => {
+        e.preventDefault();
+        const t = field.value.trim();
+        if (!t) return;
+        busy(e.submitter || e.target.querySelector('button'), async () => { await store([{ text: t, at: Date.now() }, ...list], 'Saved to memory'); field.value = ''; });
+      },
+    }, field, el('button', { type: 'submit', class: 'btn btn-sm' }, 'Add'),
+      list.length > 1 && el('button', {
+        type: 'button', class: 'btn btn-ghost btn-sm',
+        onclick: (e) => busy(e.currentTarget, async () => { if (confirm('Forget everything Experiment AI remembers about you?')) await store([], 'Memory cleared'); }),
+      }, 'Clear all')),
+  );
+  draw();
 }
 
 /* ───────── Connectors (api/connectors.js; each tool's sign-in comes back to /api/connect/<tool>/callback) ───────── */

@@ -13,6 +13,9 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "@ai-sdk/gateway": "4.0.120",
+    "@vercel/blob": "2.8.2",
+    "ai": "7.0.147",
     "firebase-admin": "14.5.0",
     "stripe": "23.0.0"
   },

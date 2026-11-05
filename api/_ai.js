@@ -19,12 +19,23 @@ export async function planOf(uid) {
 
 /* ── Models: the same list as the picker in public/app.js. minRank 0 = every plan, 1 = Light and up. ── */
 export const MODELS = {
-  'anthropic/claude-opus-5.5': 1, 'anthropic/claude-sonnet-5.5': 1, 'anthropic/claude-haiku-5.5': 0,
-  'openai/gpt-6.1-sol': 1, 'openai/gpt-6.1-terra': 1, 'openai/gpt-6-luna': 0,
-  'google/gemini-4-argon': 1, 'google/gemini-3.8-flash': 0, 'google/gemini-3.5-flash-lite': 0,
+  // chat
+  'anthropic/claude-fable-5.1': 1, 'anthropic/claude-opus-5.5': 1, 'anthropic/claude-sonnet-5.5': 1, 'anthropic/claude-haiku-5.5': 0,
+  'openai/gpt-6-astra': 1, 'openai/gpt-6.1-sol': 1, 'openai/gpt-6.1-terra': 1, 'openai/gpt-6-luna': 0,
+  'google/gemini-4-argon': 1, 'google/gemini-3.1-pro-preview': 1, 'google/gemini-3.8-flash': 0, 'google/gemini-3.5-flash-lite': 0,
   'spacexai/grok-4.7': 1, 'spacexai/grok-4.6': 1,
   'meta/muse-wonder-1.0': 1, 'meta/muse-spark-1.3': 1,
+  // image (every plan)
+  'openai/gpt-image-2.5-flare': 0, 'openai/gpt-image-2.5-sunburst': 0, 'openai/gpt-image-2': 0, 'openai/gpt-image-1.5': 0,
+  'google/gemini-nano-banana-2.1': 0, 'google/gemini-3.1-flash-image': 0, 'google/gemini-3.1-flash-lite-image': 0,
+  'meta/muse-image-1.0': 0, 'spacexai/grok-imagine-image-2.0': 0, 'spacexai/grok-imagine-image': 0,
+  // video (Light and up)
+  'google/veo-3.1-generate-001': 1, 'google/veo-3.1-fast-generate-001': 1, 'google/veo-3.1-lite-generate-001': 1,
+  'spacexai/grok-imagine-video-1.5': 1, 'spacexai/grok-imagine-video-1.5-lite': 1,
 };
+const IMAGE = new Set(Object.keys(MODELS).filter((id) => /gpt-image|nano-banana|flash(-lite)?-image|muse-image|imagine-image/.test(id)));
+const VIDEO = new Set(Object.keys(MODELS).filter((id) => /veo-|imagine-video/.test(id)));
+export const kindOf = (id) => (IMAGE.has(id) ? 'image' : VIDEO.has(id) ? 'video' : 'chat');
 export const EFFORTS = ['low', 'medium', 'high']; // High is Light and up
 
 /* ── Access: only these accounts can use the app for now (SHA-256 of the lower-case email, the same list as

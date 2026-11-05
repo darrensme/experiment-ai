@@ -319,15 +319,34 @@ function openChat(id) {
 
 $('new-chat').addEventListener('click', () => goHome());
 
+// Images and videos the AI made (stored in Blob); "?download=1" makes Blob send it as a download
+const downloadUrl = (u) => `${u}${u.includes('?') ? '&' : '?'}download=1`;
+function mediaBox(media) {
+  return el('div', { class: 'msg-media-box' }, media.map((x) => el('figure', { class: 'msg-figure' },
+    x.type === 'video'
+      ? el('video', { class: 'msg-media', src: x.url, controls: true, playsinline: true, preload: 'metadata' })
+      : el('a', { href: x.url, target: '_blank', rel: 'noopener', title: 'Open full size' }, el('img', { class: 'msg-media', src: x.url, alt: 'Image made by Experiment AI', loading: 'lazy' })),
+    el('a', { class: 'mini media-save', href: downloadUrl(x.url), rel: 'noopener' }, 'Download'))));
+}
+const jobBox = (job) => el('div', { class: `video-job${job.status === 'error' ? ' failed' : ''}`, 'data-job': job.id },
+  job.status === 'error'
+    ? (job.error || 'The video couldn’t be made. Your usage for it was given back.')
+    : [el('span', { class: 'spinner' }), 'Making your video… this usually takes a minute or two. You can keep chatting.']);
+
 function renderMessage(m) {
   if (m.role === 'assistant') {
     return el('li', { class: 'msg msg-ai' },
       m.steps?.length && el('div', { class: 'msg-steps' }, m.steps.map((s) => el('div', { class: 'msg-step done' }, icon('check'), s))),
-      el('div', { class: 'msg-text' }, m.text));
+      m.media?.length && mediaBox(m.media),
+      m.job && jobBox(m.job),
+      m.text && el('div', { class: 'msg-text' }, m.text));
   }
   const li = el('li', { class: 'msg' });
-  if (m.attachments?.length) {
-    li.append(el('div', { class: 'msg-files' }, m.attachments.map((a) => el('span', { class: 'file-chip' },
+  const pics = (m.attachments || []).filter((a) => a.url && /^image\//.test(a.type));
+  if (pics.length) li.append(el('div', { class: 'msg-pics' }, pics.map((a) => el('a', { href: a.url, target: '_blank', rel: 'noopener' }, el('img', { src: a.url, alt: a.name, loading: 'lazy' })))));
+  const others = (m.attachments || []).filter((a) => !pics.includes(a));
+  if (others.length) {
+    li.append(el('div', { class: 'msg-files' }, others.map((a) => el('span', { class: 'file-chip' },
       a.kind === 'drive' ? el('img', { src: '/assets/tools/google-drive.svg', alt: '', width: '16', height: '16' }) : icon(a.kind === 'folder' ? 'folder' : 'file'),
       el('span', {}, a.kind === 'folder' ? `${a.name} · ${plural(a.count, 'file')}` : a.name)))));
   }
@@ -340,7 +359,7 @@ function autosize() {
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 200) + 'px';
   app.style.setProperty('--ch', composer.offsetHeight + 'px');
-  send.disabled = replying || (!input.value.trim() && !attachments.length);
+  send.disabled = replying || (typeof uploadsPending === 'function' && uploadsPending()) || (!input.value.trim() && !attachments.length);
 }
 input.addEventListener('input', autosize);
 
@@ -382,10 +401,14 @@ function renderChips() {
       () => { s.tools = s.tools.filter((x) => x !== t); persistSettings(); }, 'chip-tool'));
   });
   attachments.forEach((a, i) => items.push(chip(
-    a.kind === 'drive' ? el('img', { src: '/assets/tools/google-drive.svg', alt: '', width: '14', height: '14' }) : a.kind === 'folder' ? 'folder' : 'file',
+    a.uploading ? el('span', { class: 'spinner chip-spin', title: 'Uploading…' })
+      : a.kind === 'drive' ? el('img', { src: '/assets/tools/google-drive.svg', alt: '', width: '14', height: '14' })
+        : a.kind === 'file' && a.url && /^image\//.test(a.type) ? el('img', { class: 'chip-thumb', src: a.url, alt: '' })
+          : a.kind === 'folder' ? 'folder' : 'file',
     a.kind === 'folder' ? `${a.name} · ${plural(a.files.length, 'file')}` : a.name,
     `Remove ${a.name}`,
     () => { attachments.splice(i, 1); renderChips(); },
+    a.failed ? 'chip-failed' : '',
   )));
   chipsEl.replaceChildren(...items);
   seenChips = new Set(items.map((i) => i.dataset.key));
@@ -402,6 +425,7 @@ composer.addEventListener('submit', (e) => {
   e.preventDefault();
   const text = input.value.trim();
   if (replying || (!text && !attachments.length)) return;
+  if (uploadsPending()) { notice('Wait a moment, your files are still uploading.'); return; }
 
   const now = Date.now();
   let chat = current();
@@ -412,7 +436,10 @@ composer.addEventListener('submit', (e) => {
   }
   const files = attachments.flatMap((a) => a.files);
   const usedModel = modelById(choice.model);
-  const msg = { text, at: now, model: choice.model, kind: usedModel.kind, effort: usedModel.kind === 'chat' ? choice.effort : null, attachments: attachments.map((a) => ({ kind: a.kind, name: a.name, count: a.files.length, ...(a.id && { id: a.id }) })), files };
+  const msg = { text, at: now, model: choice.model, kind: usedModel.kind, effort: usedModel.kind === 'chat' ? choice.effort : null, attachments: attachments.map((a) => ({
+    kind: a.kind, name: a.name, count: a.files.length, ...(a.id && { id: a.id }),
+    ...(a.url && { url: a.url, type: a.type, size: a.size }), ...(a.uploads?.length && { uploads: a.uploads }),
+  })), files };
   chat.messages.push(msg);
   chat.model = choice.model;
   chat.effort = choice.effort;
@@ -437,11 +464,21 @@ composer.addEventListener('submit', (e) => {
       (name, style, language, about you, how to respond) and counts toward Settings → Usage. ── */
 let replying = false;
 const nearBottom = () => thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120;
+// uploaded files in a message (single files and the readable part of folders), for the AI to read
+const uploadsOf = (m) => (m.attachments || []).flatMap((a) => (a.url ? [{ url: a.url, name: a.name, type: a.type }] : a.uploads || []));
 function toApi(chat) {
-  return chat.messages.map((m) => (m.role === 'assistant'
-    ? { role: 'assistant', content: m.text }
-    : { role: 'user', content: [m.text, m.attachments?.length && `[Attached: ${m.attachments.map((a) => (a.kind === 'drive' ? `Google Drive file “${a.name}”` : a.name)).join(', ')}]`].filter(Boolean).join('\n\n') }))
-    .filter((m) => m.content.trim());
+  return chat.messages.map((m) => {
+    if (m.role === 'assistant') {
+      const made = m.media?.length ? `[Made ${m.media[0].type === 'video' ? 'a video' : 'an image'} for this]` : m.job ? '[Started making a video]' : '';
+      return { role: 'assistant', content: [made, m.text].filter(Boolean).join('\n') };
+    }
+    const files = uploadsOf(m);
+    return {
+      role: 'user',
+      content: [m.text, m.attachments?.length && `[Attached: ${m.attachments.map((a) => (a.kind === 'drive' ? `Google Drive file “${a.name}”` : a.name)).join(', ')}]`].filter(Boolean).join('\n\n'),
+      ...(files.length && { files }),
+    };
+  }).filter((m) => m.content.trim());
 }
 // every Google Drive file picked in this chat, so the AI can read them
 const driveFilesIn = (chat) => [...new Map(chat.messages.flatMap((m) => (m.attachments || []).filter((a) => a.kind === 'drive' && a.id)).map((a) => [a.id, { id: a.id, name: a.name }])).values()];
@@ -457,12 +494,14 @@ async function reply(chat) {
   const stepsDone = () => stepsBox.querySelectorAll('.msg-step:not(.done)').forEach((s) => { s.classList.add('done'); s.firstChild.replaceWith(icon('check')); });
   let text = '';
   let error = null;
+  const media = []; // images it made
+  let job = null; // a video being made
   const used = modelById(chat.model);
+  if (used && used.kind !== 'chat') li.append(el('span', { class: 'making' }, used.kind === 'video' ? 'Starting your video…' : 'Making your image…'));
   replying = true;
   autosize();
   try {
     if (!window.eaAuth) throw new Error('Sign in to get answers.');
-    if (used?.kind !== 'chat') throw new Error(`Making ${used?.kind === 'video' ? 'videos' : 'images'} isn’t switched on yet. Pick a chat model.`);
     const r = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await window.eaAuth.token()}` },
@@ -495,27 +534,70 @@ async function reply(chat) {
           text += ev.text;
           body.textContent = text;
           if (stick) thread.scrollTop = thread.scrollHeight;
-        } else if (ev.type === 'error') error = ev.error;
-        else if (ev.type === 'done' && typeof usageData !== 'undefined') usageData = null; // Usage shows the new numbers
+        } else if (ev.type === 'image' && ev.url) media.push({ type: 'image', url: ev.url });
+        else if (ev.type === 'video-job' && ev.jobId) job = { id: ev.jobId, status: 'pending' };
+        else if (ev.type === 'error') error = ev.error;
+        else if (ev.type === 'done' && typeof refreshUsageSoon === 'function') refreshUsageSoon(); // Usage shows the new numbers
       }
     }
-    if (!text && !error) error = 'No answer came back. Please try again.';
+    if (!text && !media.length && !job && !error) error = 'No answer came back. Please try again.';
   } catch (err) {
     error = err.message || 'Something went wrong. Please try again.';
   }
   replying = false;
   autosize();
   stepsDone();
-  if (text) {
-    chat.messages.push({ role: 'assistant', text, at: Date.now(), model: chat.model, ...(steps.length && { steps }) });
+  if (text || media.length || job) {
+    const m = { role: 'assistant', text, at: Date.now(), model: chat.model, ...(steps.length && { steps }), ...(media.length && { media }), ...(job && { job }) };
+    chat.messages.push(m);
     chat.updatedAt = Date.now();
     saveChats();
+    if (media.length || job) { // show it the same way it shows after a reload
+      const shown = renderMessage(m);
+      li.replaceWith(shown);
+      if (error) shown.append(el('div', { class: 'msg-error' }, error));
+      requestAnimationFrame(() => { thread.scrollTop = thread.scrollHeight; });
+      if (job) pollVideos();
+      return;
+    }
   }
   if (error) {
     if (!text && !steps.length) fill(li);
     li.classList.remove('thinking');
     li.append(el('div', { class: 'msg-error' }, error));
   }
+}
+
+/* ── Videos being made: check every few seconds while the app is open (also after a reload) ── */
+let pollTimer = null;
+function pollVideos() {
+  clearTimeout(pollTimer);
+  const pending = () => chats.flatMap((c) => c.messages.filter((m) => m.job?.status === 'pending').map((m) => [c, m]));
+  if (!pending().length || !window.eaAuth) return;
+  pollTimer = setTimeout(async () => {
+    let changed = false;
+    for (const [c, m] of pending()) {
+      try {
+        const r = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await window.eaAuth.token()}` },
+          body: JSON.stringify({ action: 'video-status', jobId: m.job.id }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok && r.status !== 404) continue; // try again next time
+        if (d.status === 'completed' && d.url) { m.media = [{ type: 'video', url: d.url }]; delete m.job; }
+        else if (d.status === 'error' || r.status === 404) m.job = { ...m.job, status: 'error', error: d.error || 'The video couldn’t be made. Your usage for it was given back.' };
+        else continue;
+        changed = true;
+        c.updatedAt = Date.now();
+        const shown = messagesEl.querySelector(`[data-job="${CSS.escape(m.job?.id || '')}"]`) || [...messagesEl.querySelectorAll('[data-job]')].find((x) => x.dataset.job && !c.messages.some((y) => y.job?.id === x.dataset.job));
+        shown?.closest('li')?.replaceWith(renderMessage(m));
+        if (m.media && c.id !== currentId) notice(`Your video in “${c.title}” is ready`);
+      } catch {}
+    }
+    if (changed) { saveChats(); if (typeof refreshUsageSoon === 'function') refreshUsageSoon(); }
+    pollVideos();
+  }, 6000);
 }
 
 /* ── Model and effort picker ── */
@@ -840,10 +922,11 @@ $('menu-tools-btn').addEventListener('click', () => {
 });
 
 function pickedItems(list, folder) {
-  const files = [...list].map((f) => ({ name: f.name, path: f.webkitRelativePath || f.name, size: f.size, type: f.type || '' }));
+  const raw = [...list];
+  const files = raw.map((f) => ({ name: f.name, path: f.webkitRelativePath || f.name, size: f.size, type: f.type || '' }));
   if (!files.length) return [];
-  if (folder) return [{ kind: 'folder', name: files[0].path.split('/')[0] || 'Folder', files }];
-  return files.map((f) => ({ kind: 'file', name: f.name, files: [f] }));
+  if (folder) return [{ kind: 'folder', name: files[0].path.split('/')[0] || 'Folder', files, raw }];
+  return files.map((f, i) => ({ kind: 'file', name: f.name, files: [f], raw: [raw[i]] }));
 }
 function onPicked(e, folder) {
   const items = pickedItems(e.target.files, folder);
@@ -856,10 +939,69 @@ function onPicked(e, folder) {
     if (p) notice(added ? `Added ${plural(added, 'file')} to ${p.name}` : `Those files are already in ${p.name}`);
   } else {
     attachments.push(...items);
+    items.forEach(uploadAttachment);
     renderChips();
     input.focus();
   }
 }
+
+/* ── Uploads: files you attach are saved to your account's storage (api/chats.js?upload) so the AI can read them:
+      pictures it can see, PDFs, and text or code files. Big photos are shrunk first; up to 4 MB each. ── */
+const UPLOAD_MAX = 4 * 1024 * 1024;
+const READABLE = (f) => /^image\/(png|jpe?g|webp|gif|heic|heif)$/.test(f.type) || f.type === 'application/pdf'
+  || /^text\/|json|xml|javascript|csv|markdown|yaml/.test(f.type)
+  || /\.(txt|md|markdown|csv|tsv|json|jsonl|xml|html?|css|js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|kt|swift|c|h|cpp|hpp|cs|php|sh|ya?ml|toml|ini|sql|log|svg)$/i.test(f.name);
+// photos: at most 2048 px on the long side, as JPEG (keeps uploads small and the AI's view sharp enough)
+async function shrinkImage(file) {
+  if (!/^image\/(png|jpe?g|webp|heic|heif)$/.test(file.type) || (file.size < 1.5 * 1048576 && !/heic|heif/.test(file.type))) return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, 2048 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(bmp.width * scale);
+    c.height = Math.round(bmp.height * scale);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise((ok) => c.toBlob(ok, 'image/jpeg', 0.86));
+    return blob ? new File([blob], file.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' }) : file;
+  } catch { return file; }
+}
+async function uploadOne(file) {
+  const f = await shrinkImage(file);
+  if (f.size > UPLOAD_MAX) throw new Error(`${file.name} is over 4 MB, so the AI only sees its name.`);
+  const q = new URLSearchParams({ upload: '1', name: f.name, type: f.type || '' });
+  const r = await fetch(`/api/chats?${q}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${await window.eaAuth.token()}`, 'Content-Type': 'application/octet-stream' },
+    body: f,
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || `${file.name} couldn’t be uploaded.`);
+  return { url: d.url, name: f.name, type: d.type, size: d.size };
+}
+async function uploadAttachment(a) {
+  if (!window.eaAuth || a.kind === 'drive') return;
+  const raw = (a.raw || []).filter(READABLE);
+  if (!raw.length) return;
+  a.uploading = true;
+  renderChips();
+  try {
+    if (a.kind === 'file') Object.assign(a, await uploadOne(raw[0]));
+    else { // a folder: up to 20 readable files
+      a.uploads = [];
+      for (const f of raw.slice(0, 20)) {
+        try { a.uploads.push(await uploadOne(f)); } catch {}
+      }
+      if (raw.length > 20) notice(`The AI can read 20 files from a folder; the rest go by name.`);
+    }
+  } catch (err) {
+    a.failed = true;
+    notice(err.message);
+  }
+  a.uploading = false;
+  delete a.raw;
+  renderChips();
+}
+const uploadsPending = () => attachments.some((a) => a.uploading);
 fileInput.addEventListener('change', (e) => onPicked(e, false));
 folderInput.addEventListener('change', (e) => onPicked(e, true));
 

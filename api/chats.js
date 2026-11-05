@@ -7,8 +7,11 @@
 //   project-save { project }  → creates or replaces one project → { saved: id }
 //   project-delete { id }     → { deleted: true }
 // Chats live at profiles/{uid}/chats/{id}, projects at profiles/{uid}/projects/{id}.
+// POST /api/chats?upload=1&name=…&type=… with the file as the body → { url, type, size }: saves a file to attach to a
+// message (Vercel Blob; up to 4 MB; the app shrinks big photos first).
 import { HttpError, db, handle, requireUser } from './_shared.js';
 import { requireVerified } from './_ai.js';
+import { isBlobUrl, saveUpload } from './_media.js';
 
 export const CHAT_LIMIT = 1000; // chats per person
 const PROJECT_LIMIT = 200;
@@ -39,6 +42,8 @@ function cleanChat(c) {
       const atts = list(m?.attachments, 50).map((a) => ({
         kind: ['file', 'folder', 'drive'].includes(a?.kind) ? a.kind : 'file', name: str(a?.name, 200), count: num(a?.count),
         ...(typeof a?.id === 'string' && /^[\w-]{10,}$/.test(a.id) && { id: a.id }),
+        ...(isBlobUrl(a?.url) && { url: a.url, type: str(a.type, 100), size: num(a.size) }), // uploaded, so the AI can read it
+        ...(Array.isArray(a?.uploads) && { uploads: list(a.uploads, 20).filter((u) => isBlobUrl(u?.url)).map((u) => ({ url: u.url, name: str(u.name, 200), type: str(u.type, 100), size: num(u.size) })) }),
       }));
       if (atts.length) out.attachments = atts;
       const files = list(m?.files, 200).map(fileMeta);
@@ -46,6 +51,10 @@ function cleanChat(c) {
     } else {
       const steps = list(m?.steps, 12).map((s) => str(s, 120)).filter(Boolean);
       if (steps.length) out.steps = steps;
+      const media = list(m?.media, 8).filter((x) => ['image', 'video'].includes(x?.type) && isBlobUrl(x.url)).map((x) => ({ type: x.type, url: x.url }));
+      if (media.length) out.media = media;
+      if (m?.job && /^[A-Za-z0-9]{10,40}$/.test(m.job.id || '')) out.job = { id: m.job.id, status: ['pending', 'error'].includes(m.job.status) ? m.job.status : 'pending', ...(m.job.error && { error: str(m.job.error, 300) }) };
+      if (m?.error) out.error = str(m.error, 300);
     }
     return out;
   });
@@ -84,9 +93,21 @@ async function fits(doc, what) {
   if (JSON.stringify(doc).length > DOC_MAX) throw new HttpError(413, `This ${what} is too big to save to your account.`);
 }
 
+async function rawBody(req) {
+  if (Buffer.isBuffer(req.body)) return req.body;
+  if (typeof req.body === 'string') return Buffer.from(req.body, 'binary');
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  return Buffer.concat(chunks);
+}
+
 export default handle(async (req, res) => {
   const user = await requireUser(req);
   requireVerified(user);
+  if (req.query?.upload) {
+    const name = String(req.query.name || 'file').slice(0, 200);
+    return res.status(200).json(await saveUpload(user.uid, name, String(req.query.type || ''), await rawBody(req)));
+  }
   const action = String(req.body?.action || '');
   const chats = chatsOf(user.uid);
   const projects = projectsOf(user.uid);
