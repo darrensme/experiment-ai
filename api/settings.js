@@ -13,12 +13,14 @@
 //   admin-unlimited { uid, on }           → no limits, every model
 //   admin-access { uid, on }              → let them into the app
 //   admin-reset-usage { uid }             → today and this week back to 0
+//   admin-delete { uid, confirm: email }  → deletes the account and everything stored for it (see _account.js)
 import { HttpError, auth, db, handle, requireUser } from './_shared.js';
 import {
   PLANS, budgetsFor, hasAccess, isAdmin, isUnlimited, planOf, readSpent, requireAdmin, requireVerified,
 } from './_ai.js';
 import { readProfile, saveAvatar, saveMemories, saveSettings } from './_profile.js';
 import { chatsOf } from './chats.js';
+import { deleteAccount } from './_account.js';
 
 /* ── Admin helpers ── */
 async function describe(u, { detail = false } = {}) {
@@ -95,6 +97,15 @@ async function adminAction(user, action, body) {
     else await store.collection('access').doc(uid).delete();
   } else if (action === 'admin-reset-usage') {
     await store.collection('usage').doc(uid).delete();
+  } else if (action === 'admin-delete') {
+    if (uid === user.uid) throw new HttpError(400, 'Delete your own account in Settings › Account.');
+    if (isAdmin(target)) throw new HttpError(400, 'Admins can’t be deleted here.');
+    if (String(body.confirm || '').trim().toLowerCase() !== String(target.email || target.uid).toLowerCase()) {
+      throw new HttpError(400, 'Type their email to confirm.');
+    }
+    await deleteAccount(uid);
+    console.log('admin', action, uid, target.email, 'by', user.email);
+    return { deleted: true };
   } else throw new HttpError(400, 'Unknown admin action.');
   console.log('admin', action, uid, 'by', user.email);
   return { user: await describe(target, { detail: true }) };

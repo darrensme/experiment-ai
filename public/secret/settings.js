@@ -973,8 +973,34 @@ async function renderAdminUser(uid, given = null) {
               });
             },
           }, reason, el('div', { class: 'form-actions' }, el('button', { type: 'submit', class: 'btn btn-sm btn-red' }, 'Ban account')))],
+    !u.admin && adminDeleteBox(u),
   );
   settingsBody.scrollTop = 0;
+}
+// Delete an account for good: type their email to confirm (cancels a paid plan, deletes chats, files and the sign-in)
+function adminDeleteBox(u) {
+  const who = u.email || u.uid;
+  const confirmField = el('input', { class: 'field', placeholder: `Type ${who} to confirm`, autocomplete: 'off', spellcheck: 'false' });
+  const go = el('button', { type: 'submit', class: 'btn btn-sm btn-red', disabled: true }, 'Delete account');
+  confirmField.addEventListener('input', () => { go.disabled = confirmField.value.trim().toLowerCase() !== who.toLowerCase(); });
+  return [
+    el('h4', { class: 'set-label' }, 'Delete account'),
+    el('form', {
+      class: 'set-group set-form admin-delete',
+      onsubmit: (e) => {
+        e.preventDefault();
+        busy(go, async () => {
+          await api('/api/settings', { action: 'admin-delete', uid: u.uid, confirm: confirmField.value.trim() });
+          adminState.users = adminState.users.filter((x) => x.uid !== u.uid);
+          notice(`Deleted ${who}`);
+          renderAdmin();
+        });
+      },
+    },
+      el('p', { class: 'admin-delete-note' }, 'Deletes their chats, projects, Memory, files, connected services, usage and sign-in for good, and cancels a paid plan in Stripe right away. This can’t be undone.'),
+      confirmField,
+      el('div', { class: 'form-actions' }, go)),
+  ];
 }
 const PLANS_ALL = ['free', 'light', 'pro', 'max-5x', 'max-10x'];
 
