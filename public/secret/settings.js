@@ -24,8 +24,6 @@ let settingsTab = 'account';
 let profile = { avatar: null };   // from api/settings (custom picture)
 let usageData = null;             // from api/usage
 let usageAt = 0;
-let embedded = null;              // Stripe embedded checkout, while it's open
-let billingCycle = null;          // monthly / yearly picker in Billing
 
 /* ── Talking to the server ── */
 const signedIn = () => Boolean(window.eaAuth && account);
@@ -51,6 +49,7 @@ async function loadUsage(force = false) {
 function renderPlanLabel() {
   if (!usageData) return;
   $('account-plan').textContent = `${PLAN_INFO[usageData.plan]?.name || 'Free'} plan`;
+  renderUpgradeLabel();
   // the Usage button under the message bar: today's share of the daily limit
   const u = usageData;
   const pct = u.budgets.day > 0 ? Math.min(100, (u.spent.day / u.budgets.day) * 100) : 0;
@@ -223,9 +222,9 @@ async function afterSignIn() {
     try {
       const { status, plan } = await api('/api/checkout-status', { sessionId: id });
       if (status === 'complete') {
-        notice(plan ? `You're on ${PLAN_INFO[plan]?.name || plan} now. Thanks!` : 'Payment received. Your plan will switch on in a moment.');
         await loadUsage(true);
-        openSettings('billing');
+        if (plan) celebrate(plan); // the upgrade animation
+        else notice('Payment received. Your plan will switch on in a moment.');
       } else notice('Checkout wasn’t finished, so nothing was charged.');
     } catch (err) { notice(err.message); }
   }
@@ -249,7 +248,6 @@ function openSettings(tab = 'account') {
   if (phone.matches) setSidebar(false);
 }
 function closeSettings() {
-  closeCheckout();
   hidePop(settingsLayer);
 }
 $('settings-close').addEventListener('click', closeSettings);
@@ -268,7 +266,6 @@ fill($('settings-tabs'), TABS.map(([key, label, paths]) => el('button', {
 }, svgIcon(paths), label)));
 
 function showTab(tab) {
-  closeCheckout();
   settingsTab = tab;
   document.querySelectorAll('.settings-tab').forEach((b) => {
     const on = b.id === `tab-${tab}`;
@@ -438,82 +435,150 @@ async function deleteAccount() {
 }
 
 /* ───────── Billing (plan and payments only; usage has its own tab) ───────── */
+const PAID_ORDER = ['light', 'pro', 'max-5x', 'max-10x'];
+const PLAN_POINTS = {
+  light: ['Every chat model', 'High effort and Memory', 'Videos with Veo and Grok'],
+  pro: ['Everything in Light', '2× the usage of Light', 'Bigger daily and weekly limits'],
+  'max-5x': ['Everything in Pro', '5× the usage of Pro', 'For heavy, everyday use'],
+  'max-10x': ['Everything in Pro', '10× the usage of Pro', 'The most Experiment AI can do'],
+};
+const daysLeft = (sec) => Math.max(0, Math.ceil((sec * 1000 - Date.now()) / 86_400_000));
+const currentPlan = () => (PLAN_INFO[usageData?.plan] ? usageData.plan : 'free');
+const planButtonLabel = () => (currentPlan() === 'max-10x' ? 'Change plan' : 'Upgrade plan');
+// the account menu's item says the same as the Billing button
+function renderUpgradeLabel() {
+  const item = $('upgrade-item-label');
+  if (item) item.textContent = planButtonLabel();
+}
+
 async function renderBilling() {
   fill(settingsBody, head('Billing', 'Your plan and payments.'), loading());
   if (!signedIn()) { fill(settingsBody, head('Billing'), el('div', { class: 'set-empty' }, el('p', {}, 'Sign in to see your plan.'))); return; }
   let u;
   try { u = await loadUsage(true); } catch (err) { if (settingsTab === 'billing') fill(settingsBody, head('Billing'), failed(err, renderBilling)); return; }
-  if (settingsTab !== 'billing' || embedded) return;
+  if (settingsTab !== 'billing') return;
 
-  const plan = PLAN_INFO[u.plan] ? u.plan : 'free';
+  const plan = currentPlan();
   const info = PLAN_INFO[plan];
   const b = u.billing;
   const yearly = b?.billing === 'yearly';
-  billingCycle ||= yearly ? 'yearly' : 'monthly';
+  const cancelled = plan !== 'free' && b?.cancelAtPeriodEnd && b?.periodEnd;
   let status = 'No payment needed.';
   if (plan !== 'free' && b) {
     if (b.status === 'past_due') status = 'Your last payment didn’t go through. Update your card in Manage billing.';
-    else if (b.cancelAtPeriodEnd && b.periodEnd) status = `Cancelled. You keep ${info.name} until ${fmtDate(b.periodEnd)}.`;
-    else if (b.periodEnd) status = `Renews on ${fmtDate(b.periodEnd)}.`;
+    else if (cancelled) {
+      const d = daysLeft(b.periodEnd);
+      status = `You can keep using ${info.name} until ${fmtDate(b.periodEnd)} (${d === 0 ? 'last day' : `${d} day${d === 1 ? '' : 's'} left`}). After that you’re on Free.`;
+    } else if (b.periodEnd) status = `Renews on ${fmtDate(b.periodEnd)}.`;
   } else if (b?.status === 'unpaid' || b?.status === 'canceled') status = 'Your paid plan has ended.';
 
   const priceText = plan === 'free' ? '$0' : yearly ? `$${info.price * 10}` : `$${info.price}`;
   const per = plan === 'free' ? 'forever' : yearly ? 'per year' : 'per month';
 
-  const list = el('div', { class: 'plan-list' });
-  const drawPlans = () => fill(list, ['light', 'pro', 'max-5x', 'max-10x'].map((p) => {
-    const pi = PLAN_INFO[p];
-    const isCurrent = p === plan && (b?.billing || 'monthly') === billingCycle && !b?.cancelAtPeriodEnd;
-    const up = pi.price > info.price;
-    const price = billingCycle === 'yearly' ? `$${pi.price * 10}/year` : `$${pi.price}/month`;
-    return el('div', { class: `plan-row${p === plan ? ' current' : ''}` },
-      el('img', { class: 'plan-row-icon', src: `/assets/plans/${p}.svg`, alt: '', width: '30', height: '30' }),
-      el('div', { class: 'grow' }, el('strong', {}, pi.name), el('small', {}, pi.note)),
-      el('span', { class: 'plan-price' }, price),
-      isCurrent
-        ? el('span', { class: 'badge badge-blue' }, 'Current')
-        : button(plan === 'free' || up ? 'Upgrade' : p === plan ? 'Switch' : 'Change', (e) => busy(e.currentTarget, () => choosePlan(p, plan)), up || plan === 'free' ? 'btn btn-sm' : 'btn btn-ghost btn-sm'));
-  }));
-  drawPlans();
-
   fill(settingsBody,
     head('Billing', 'Your plan and payments.'),
-    el('div', { class: 'plan-card' },
+    el('div', { class: `plan-card${cancelled ? ' cancelled' : ''}` },
       el('div', { class: 'plan-card-top' },
         el('img', { class: 'plan-card-icon', src: `/assets/plans/${plan}.svg`, alt: '', width: '48', height: '48' }),
         el('div', { class: 'grow' },
-          el('small', {}, 'Current plan'),
-          el('div', { class: 'plan-name' }, info.name, u.unlimited && el('span', { class: 'badge badge-gold' }, 'Unlimited'))),
+          el('small', {}, cancelled ? 'Cancelled plan' : 'Current plan'),
+          el('div', { class: 'plan-name' }, info.name,
+            cancelled && el('span', { class: 'badge badge-red' }, 'Cancelled'),
+            u.unlimited && el('span', { class: 'badge badge-gold' }, 'Unlimited'))),
         el('div', { class: 'plan-amount' }, el('strong', {}, priceText), el('small', {}, per))),
       el('p', { class: 'plan-status' }, status),
-      b?.canManage && el('div', { class: 'plan-actions' },
-        button('Manage billing', (e) => busy(e.currentTarget, async () => {
+      el('div', { class: 'plan-actions' },
+        cancelled && button('Keep my plan', (e) => busy(e.currentTarget, async () => {
+          const r = await api('/api/checkout', { plan, billing: b.billing || 'monthly' }); // un-cancels it
+          if (r.changed) { notice(`You’re keeping ${info.name}`); await loadUsage(true); renderBilling(); }
+        }), 'btn btn-sm'),
+        b?.canManage && button('Manage billing', (e) => busy(e.currentTarget, async () => {
           location.href = (await api('/api/billing-portal')).url;
-        }), 'btn btn-sm')),
+        }), cancelled ? 'btn btn-ghost btn-sm' : 'btn btn-sm')),
       b?.canManage && el('small', { class: 'plan-foot' }, 'Change your card, see invoices or cancel in Stripe.')),
-    el('div', { class: 'set-label-row' },
-      el('h4', { class: 'set-label' }, plan === 'free' ? 'Upgrade' : 'Change plan'),
-      seg('Billing period', [['monthly', 'Monthly'], ['yearly', 'Yearly · 2 months free']], billingCycle, (v) => { billingCycle = v; drawPlans(); })),
-    list,
-    plan !== 'free' && el('p', { class: 'set-note' }, 'To go back to Free, cancel in Manage billing. You keep your plan until the end of what you’ve paid for.'),
+    el('button', { type: 'button', class: 'btn upgrade-big', onclick: () => openPlans() },
+      el('img', { src: '/assets/plans/max-10x.svg', alt: '', width: '22', height: '22' }), planButtonLabel()),
+    el('p', { class: 'set-note' }, plan === 'free'
+      ? 'Light, Pro and Max add every model, Memory, videos and more usage.'
+      : cancelled
+        ? 'Changed your mind? Keep my plan turns it back on, and nothing changes.'
+        : 'To go back to Free, cancel in Manage billing. You keep your plan until the end of what you’ve paid for.'),
   );
 }
 
-async function choosePlan(p, current) {
-  const pi = PLAN_INFO[p];
-  if (current !== 'free' && !confirm(`Switch to ${pi.name} (${billingCycle})? The difference is charged or credited now.`)) return;
-  const r = await api('/api/checkout', { plan: p, billing: billingCycle });
-  if (r.changed) {
-    notice(`You're on ${PLAN_INFO[r.plan]?.name || pi.name} now`);
-    await loadUsage(true);
-    renderBilling();
-    return;
-  }
-  await openCheckout(r.clientSecret, r.publishableKey, pi.name);
+/* ── The plans pop-up: 4 cards; yours says Current, ones above say Upgrade, ones below say Change ── */
+const plansLayer = $('plans');
+const plansBody = $('plans-body');
+let plansCycle = null;
+const plansOpen = () => isShown(plansLayer);
+async function openPlans() {
+  closeAccount();
+  closeMenu();
+  if (!signedIn()) { notice('Sign in to change your plan.'); return; }
+  showPop(plansLayer);
+  fill(plansBody, loading());
+  try { await loadUsage(); } catch (err) { fill(plansBody, failed(err, openPlans)); return; }
+  plansCycle = usageData.billing?.billing || plansCycle || 'monthly';
+  renderPlans();
+}
+function closePlans() {
+  closeCheckout();
+  hidePop(plansLayer);
+}
+$('plans-close').addEventListener('click', closePlans);
+document.querySelectorAll('[data-plans]').forEach((b) => b.addEventListener('click', () => openPlans())); // account menu
+plansLayer.addEventListener('pointerdown', (e) => { if (e.target === plansLayer) closePlans(); });
+
+function renderPlans() {
+  closeCheckout();
+  const plan = currentPlan();
+  const b = usageData.billing;
+  const cancelled = plan !== 'free' && b?.cancelAtPeriodEnd;
+  const rankOf = (p) => PAID_ORDER.indexOf(p); // free = -1
+  $('plans-title').textContent = plan === 'max-10x' ? 'Change your plan' : 'Upgrade your plan';
+  fill(plansBody,
+    el('div', { class: 'plans-cycle' },
+      seg('Billing period', [['monthly', 'Monthly'], ['yearly', 'Yearly · 2 months free']], plansCycle, (v) => { plansCycle = v; renderPlans(); })),
+    el('div', { class: 'plans-grid' }, PAID_ORDER.map((p, i) => {
+      const pi = PLAN_INFO[p];
+      const isCurrent = p === plan && (b?.billing || 'monthly') === plansCycle;
+      const up = rankOf(p) > rankOf(plan);
+      const price = plansCycle === 'yearly' ? pi.price * 10 : pi.price;
+      let action;
+      if (isCurrent && cancelled) action = el('button', { type: 'button', class: 'btn plan-go', onclick: (e) => busy(e.currentTarget, () => goPlan(p, plan)) }, 'Keep plan');
+      else if (isCurrent) action = el('button', { type: 'button', class: 'btn btn-ghost plan-go', disabled: true }, 'Current');
+      else action = el('button', { type: 'button', class: `btn plan-go${up ? '' : ' btn-ghost'}`, onclick: (e) => busy(e.currentTarget, () => goPlan(p, plan)) }, up ? 'Upgrade' : 'Change');
+      return el('div', { class: `plan-tile${isCurrent ? ' current' : ''}${p === 'pro' && plan === 'free' ? ' popular' : ''}`, style: `--d:${i * 50}ms` },
+        isCurrent && el('span', { class: 'plan-tag' }, cancelled ? 'Current · cancelled' : 'Current'),
+        !isCurrent && p === 'pro' && plan === 'free' && el('span', { class: 'plan-tag plan-tag-gold' }, 'Most popular'),
+        el('img', { class: 'plan-tile-icon', src: `/assets/plans/${p}.svg`, alt: '', width: '44', height: '44' }),
+        el('h4', {}, pi.name),
+        el('div', { class: 'plan-tile-price' }, el('strong', {}, `$${price}`), el('span', {}, plansCycle === 'yearly' ? '/year' : '/month')),
+        el('ul', {}, PLAN_POINTS[p].map((t) => el('li', {}, icon('check'), t))),
+        action);
+    })),
+    el('p', { class: 'plans-foot' }, plan === 'free'
+      ? 'Payments are handled securely by Stripe. Cancel anytime in Settings › Billing.'
+      : 'Switching charges or credits the difference right away. Cancel anytime in Settings › Billing.'),
+  );
 }
 
-// Stripe's embedded checkout, inside the Billing tab
+// Upgrade/Change: no subscription yet → Stripe checkout right here; already subscribed → switched at once
+async function goPlan(p, from) {
+  const r = await api('/api/checkout', { plan: p, billing: plansCycle });
+  if (r.changed) {
+    await loadUsage(true);
+    if (PAID_ORDER.indexOf(r.plan || p) > PAID_ORDER.indexOf(from)) { closePlans(); celebrate(r.plan || p); }
+    else { notice(`You’re on ${PLAN_INFO[r.plan || p]?.name || p} now`); closePlans(); }
+    if (settingsOpen() && settingsTab === 'billing') renderBilling();
+    return;
+  }
+  await openCheckout(r.clientSecret, r.publishableKey, PLAN_INFO[p].name);
+}
+
+// Stripe's embedded checkout, inside the plans pop-up
 let stripeJs = null;
+let embedded = null;
 function loadStripe() {
   stripeJs ||= new Promise((ok, bad) => {
     const s = el('script', { src: 'https://js.stripe.com/v3/' });
@@ -526,9 +591,9 @@ function loadStripe() {
 async function openCheckout(secret, key, planName) {
   const Stripe = await loadStripe();
   const box = el('div', { class: 'checkout', id: 'checkout' });
-  fill(settingsBody,
-    el('button', { type: 'button', class: 'back', onclick: () => { closeCheckout(); renderBilling(); } }, icon('back'), 'Billing'),
-    head(`Upgrade to ${planName}`, 'Payments are handled securely by Stripe.'),
+  $('plans-title').textContent = `Upgrade to ${planName}`;
+  fill(plansBody,
+    el('button', { type: 'button', class: 'back', onclick: () => renderPlans() }, icon('back'), 'All plans'),
     box);
   embedded = await Stripe(key).initEmbeddedCheckout({ fetchClientSecret: async () => secret });
   if (box.isConnected) embedded.mount(box);
@@ -538,6 +603,26 @@ function closeCheckout() {
   if (!embedded) return;
   try { embedded.destroy(); } catch {}
   embedded = null;
+}
+
+/* ── The upgrade moment: the new plan's potion rises in a burst of light ── */
+function celebrate(plan) {
+  const info = PLAN_INFO[plan];
+  if (!info) return;
+  const layer = el('div', { class: 'celebrate', role: 'status', 'aria-live': 'polite' },
+    el('div', { class: 'celebrate-card' },
+      el('div', { class: 'celebrate-burst', 'aria-hidden': 'true' },
+        Array.from({ length: 14 }, (_, i) => el('i', { style: `--a:${i * (360 / 14)}deg;--r:${90 + (i % 3) * 28}px;--t:${(i % 4) * 60}ms` }))),
+      el('div', { class: 'celebrate-ring', 'aria-hidden': 'true' }),
+      el('img', { class: 'celebrate-icon', src: `/assets/plans/${plan}.svg`, alt: '' }),
+      el('p', { class: 'celebrate-kicker' }, 'Upgrade complete'),
+      el('h2', {}, 'Welcome to ', el('span', { class: 'serif' }, info.name)),
+      el('p', { class: 'celebrate-note' }, `${PLAN_POINTS[plan][1]}. Enjoy!`),
+      el('button', { type: 'button', class: 'btn', onclick: () => done() }, 'Let’s go')));
+  const done = () => { layer.classList.add('closing'); setTimeout(() => layer.remove(), 260); };
+  layer.addEventListener('pointerdown', (e) => { if (e.target === layer) done(); });
+  document.body.append(layer);
+  layer.querySelector('.btn').focus();
 }
 
 /* ───────── Usage ───────── */
@@ -588,7 +673,7 @@ async function renderUsage() {
       : el('div', { class: 'set-group' }, el('p', { class: 'set-empty-row' }, 'Nothing used yet this week.')),
     !u.unlimited && u.plan !== 'max-10x' && el('div', { class: 'set-upsell' },
       el('span', {}, 'Need more room?'),
-      button(u.plan === 'free' ? 'Upgrade' : 'See plans', () => showTab('billing'), 'btn btn-sm')),
+      button(u.plan === 'free' ? 'Upgrade' : 'See plans', () => openPlans(), 'btn btn-sm')),
   );
   // let the bars grow in
   requestAnimationFrame(() => settingsBody.querySelectorAll('.bar').forEach((b) => b.classList.add('grown')));

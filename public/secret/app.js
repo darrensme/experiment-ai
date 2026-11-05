@@ -1251,7 +1251,10 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (e.key !== 'Escape') return;
-  if (settingsOpen()) closeSettings();
+  const party = document.querySelector('.celebrate:not(.closing)');
+  if (party) party.querySelector('.btn')?.click();
+  else if (plansOpen()) closePlans();
+  else if (settingsOpen()) closeSettings();
   else if (menuOpen()) { closeMenu(); plusBtn.focus(); }
   else if (modelMenuOpen()) { closeModelMenu(); modelBtn.focus(); }
   else if (accountOpen()) { closeAccount(); accountBtn.focus(); }
