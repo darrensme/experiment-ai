@@ -24,11 +24,9 @@ async function json(r, what) {
   return data;
 }
 
-const CANVA_SCOPES = [
-  'asset:read', 'asset:write', 'brandtemplate:content:read', 'brandtemplate:meta:read', 'comment:read', 'comment:write',
-  'design:content:read', 'design:content:write', 'design:meta:read', 'design:permission:read', 'design:permission:write',
-  'folder:read', 'folder:write', 'folder:permission:read', 'folder:permission:write', 'profile:read', 'app:read', 'app:write',
-].join(' ');
+// Only what the AI's Canva tools use (find designs, create one, show who's connected). Asking for scopes the Canva
+// integration doesn't have switched on fails with "requested scope not allowed in client". Override with CANVA_SCOPES.
+const CANVA_SCOPES = (process.env.CANVA_SCOPES || 'profile:read design:meta:read design:content:read design:content:write').trim();
 
 export const PROVIDERS = {
   google: {
