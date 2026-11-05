@@ -53,6 +53,11 @@ function cleanChat(c) {
       if (steps.length) out.steps = steps;
       const media = list(m?.media, 8).filter((x) => ['image', 'video'].includes(x?.type) && isBlobUrl(x.url)).map((x) => ({ type: x.type, url: x.url }));
       if (media.length) out.media = media;
+      // pictures found with image search (links to other sites)
+      const https = (u) => (typeof u === 'string' && /^https:\/\/[^\s"'<>]{4,600}$/.test(u) ? u : null);
+      const found = list(m?.found, 8).filter((x) => https(x?.thumb) && https(x?.page))
+        .map((x) => ({ thumb: x.thumb, full: https(x.full) || x.thumb, page: x.page, title: str(x.title, 140), source: str(x.source, 80) }));
+      if (found.length) out.found = found;
       if (m?.job && /^[A-Za-z0-9]{10,40}$/.test(m.job.id || '')) out.job = { id: m.job.id, status: ['pending', 'error'].includes(m.job.status) ? m.job.status : 'pending', ...(m.job.error && { error: str(m.job.error, 300) }) };
       if (m?.error) out.error = str(m.error, 300);
     }

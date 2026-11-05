@@ -10,7 +10,7 @@ const LIVE = ['active', 'trialing', 'past_due'];
 
 export default handle(async (req, res) => {
   const user = await requireUser(req);
-  requireAccess(user);
+  await requireAccess(user);
   const plan = String(req.body?.plan || '');
   const billing = String(req.body?.billing || 'monthly');
   if (!(plan in PAID)) throw new HttpError(400, 'Pick a plan.');

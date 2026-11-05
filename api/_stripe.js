@@ -106,8 +106,8 @@ export async function syncSubscription(sub) {
       cancelAtPeriodEnd: Boolean(sub.cancel_at_period_end),
       checkedAt: Date.now(),
     };
-    tx.set(ref, next);
-    return next;
+    tx.set(ref, next, { merge: true }); // keeps an admin's override / unlimited
+    return { ...now, ...next };
   });
 }
 

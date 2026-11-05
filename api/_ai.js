@@ -12,9 +12,11 @@ export const PLANS = ['free', 'light', 'pro', 'max-5x', 'max-10x'];
 const BUDGET_BASE = { free: 2, light: 10, pro: 20, 'max-5x': 100, 'max-10x': 200 };
 export const budgetsFor = (plan) => ({ day: BUDGET_BASE[plan] / 4 / 7, week: BUDGET_BASE[plan] / 4 });
 
+// An admin's override (Settings › Admin) wins over what Stripe says.
 export async function planOf(uid) {
-  const plan = (await db().collection('plans').doc(uid).get()).data()?.plan;
-  return PLANS.includes(plan) ? plan : 'free';
+  const d = (await db().collection('plans').doc(uid).get()).data() || {};
+  if (PLANS.includes(d.override)) return d.override;
+  return PLANS.includes(d.plan) ? d.plan : 'free';
 }
 
 /* ── Models: the same list as the picker in public/app.js. minRank 0 = every plan, 1 = Light and up. ── */
@@ -50,8 +52,25 @@ const isVerified = (user) => user.emailVerified || user.providerData.some((p) =>
 export function requireVerified(user) {
   if (!isVerified(user)) throw new HttpError(403, 'Please confirm your email first.');
 }
-export function requireAccess(user) {
-  if (!isVerified(user) || !ACCESS.has(emailHash(user))) throw new HttpError(403, 'Experiment AI isn’t open to your account yet.');
+// Also open to accounts an admin let in (Firestore access/{uid}).
+export async function requireAccess(user) {
+  if (!isVerified(user)) throw new HttpError(403, 'Please confirm your email first.');
+  if (ACCESS.has(emailHash(user))) return;
+  if ((await db().collection('access').doc(user.uid).get()).exists) return;
+  throw new HttpError(403, 'Experiment AI isn’t open to your account yet.');
+}
+export const hasAccess = async (user) => {
+  try { await requireAccess(user); return true; } catch { return false; }
+};
+
+/* ── Admins (Settings › Admin): the owner's account, plus ADMIN_HASHES (comma-separated SHA-256 of emails) ── */
+const ADMINS = new Set([
+  'ae3ae4132254ca107278d03a30f1ecdfee4d322a2c29f5415e22677ef4e6485c',
+  ...(process.env.ADMIN_HASHES || '').split(',').map((s) => s.trim()).filter(Boolean),
+]);
+export const isAdmin = (user) => isVerified(user) && ADMINS.has(emailHash(user));
+export function requireAdmin(user) {
+  if (!isAdmin(user)) throw new HttpError(403, 'Admins only.');
 }
 
 /* ── Unlimited: no daily/weekly limit and every model and effort, whatever the plan (spending is still recorded).
@@ -61,6 +80,11 @@ const UNLIMITED = new Set([
   ...(process.env.UNLIMITED_HASHES || '').split(',').map((s) => s.trim()).filter(Boolean),
 ]);
 export const isUnlimited = (user) => isVerified(user) && UNLIMITED.has(emailHash(user));
+// …or an admin switched Unlimited on for them (plans/{uid}.unlimited)
+export async function unlimitedFor(user) {
+  if (isUnlimited(user)) return true;
+  return (await db().collection('plans').doc(user.uid).get()).data()?.unlimited === true;
+}
 
 /* ── The Gateway's model list (public): per-token prices and the effort levels each model takes. Cached for an hour. ── */
 let catalog = null;

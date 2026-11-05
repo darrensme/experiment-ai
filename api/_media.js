@@ -6,7 +6,7 @@
 //   Videos: started as a Gateway background job (AI SDK experimental_startVideo); the app checks on it every few
 //   seconds and, once it's done, the video is copied into Blob (provider links expire).
 import { createHash, randomBytes } from 'node:crypto';
-import { put } from '@vercel/blob';
+import { del, list, put } from '@vercel/blob';
 import { createGateway, experimental_getVideoStatus as getVideoStatus, experimental_startVideo as startVideo } from 'ai';
 import { HttpError, db } from './_shared.js';
 import { GATEWAY } from './_ai.js';
@@ -22,6 +22,22 @@ export async function saveFile(uid, kind, name, bytes, contentType) {
   const path = `${kind}/${folderOf(uid)}/${randomBytes(6).toString('hex')}-${safeName(name)}`;
   const blob = await put(path, bytes, { access: 'public', contentType, addRandomSuffix: true, token: process.env.BLOB_READ_WRITE_TOKEN });
   return blob.url;
+}
+
+// Everything stored for this person (uploads, images, videos): deleted with their account.
+export async function deleteUserFiles(uid) {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!token) return 0;
+  let n = 0;
+  for (const kind of ['uploads', 'images', 'videos']) {
+    let cursor;
+    do {
+      const page = await list({ prefix: `${kind}/${folderOf(uid)}/`, cursor, limit: 1000, token });
+      if (page.blobs.length) { await del(page.blobs.map((b) => b.url), { token }); n += page.blobs.length; }
+      cursor = page.hasMore ? page.cursor : undefined;
+    } while (cursor);
+  }
+  return n;
 }
 
 /* ── Uploads (api/chats.js?upload=…): the app shrinks big photos first, so 4 MB covers almost everything ── */

@@ -333,13 +333,19 @@ const jobBox = (job) => el('div', { class: `video-job${job.status === 'error' ? 
     ? (job.error || 'The video couldn’t be made. Your usage for it was given back.')
     : [el('span', { class: 'spinner' }), 'Making your video… this usually takes a minute or two. You can keep chatting.']);
 
+// pictures from image search: a grid of thumbnails, each opening its page
+const foundBox = (items) => el('div', { class: 'found-grid' }, items.map((x) => el('a', {
+  class: 'found-item', href: x.page, target: '_blank', rel: 'noopener noreferrer', title: `${x.title} · ${x.source}`,
+}, el('img', { src: x.thumb, alt: x.title, loading: 'lazy', referrerpolicy: 'no-referrer' }), el('span', {}, x.source))));
+
 function renderMessage(m) {
   if (m.role === 'assistant') {
     return el('li', { class: 'msg msg-ai' },
       m.steps?.length && el('div', { class: 'msg-steps' }, m.steps.map((s) => el('div', { class: 'msg-step done' }, icon('check'), s))),
       m.media?.length && mediaBox(m.media),
       m.job && jobBox(m.job),
-      m.text && el('div', { class: 'msg-text' }, m.text));
+      m.text && el('div', { class: 'msg-text' }, m.text),
+      m.found?.length && foundBox(m.found));
   }
   const li = el('li', { class: 'msg' });
   const pics = (m.attachments || []).filter((a) => a.url && /^image\//.test(a.type));
@@ -372,6 +378,75 @@ input.addEventListener('keydown', (e) => {
     e.preventDefault();
     composer.requestSubmit();
   }
+});
+
+/* ── Dictation: the mic records you; api/chat.js (action 'transcribe') turns it into text in the message box ── */
+const micBtn = $('mic');
+let rec = null; // { recorder, stream, started, timer }
+const clock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+async function startDictation() {
+  if (!window.eaAuth) { notice('Sign in to use dictation.'); return; }
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) { notice('This browser can’t record audio.'); return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { notice('Allow microphone access to dictate.'); return; }
+  const type = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'].find((t) => MediaRecorder.isTypeSupported?.(t)) || '';
+  const recorder = new MediaRecorder(stream, type ? { mimeType: type, audioBitsPerSecond: 32000 } : undefined);
+  const chunks = [];
+  recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  recorder.onstop = () => finishDictation(chunks, recorder.mimeType);
+  recorder.start(1000);
+  rec = { recorder, stream, started: Date.now() };
+  rec.timer = setInterval(tickDictation, 250);
+  micBtn.classList.add('recording');
+  micBtn.setAttribute('aria-label', 'Stop dictating');
+  micBtn.title = 'Stop dictating';
+  tickDictation();
+}
+function tickDictation() {
+  if (!rec) return;
+  const s = Math.floor((Date.now() - rec.started) / 1000);
+  input.placeholder = `Listening… ${clock(s)} · tap the mic to stop`;
+  if (s >= 180) stopDictation(); // 3 minutes at most
+}
+function stopDictation() {
+  if (!rec || rec.recorder.state === 'inactive') return;
+  clearInterval(rec.timer);
+  rec.recorder.stop();
+  rec.stream.getTracks().forEach((t) => t.stop());
+}
+async function finishDictation(chunks, mime) {
+  rec = null;
+  micBtn.classList.remove('recording');
+  micBtn.classList.add('busy');
+  micBtn.setAttribute('aria-label', 'Dictate');
+  micBtn.title = 'Dictate';
+  input.placeholder = 'Turning your voice into text…';
+  try {
+    const blob = new Blob(chunks, { type: (mime || 'audio/webm').split(';')[0] });
+    if (blob.size < 1500) throw new Error('Didn’t catch that. Try again.');
+    const b64 = await new Promise((ok, bad) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result).split(',')[1] || ''); fr.onerror = bad; fr.readAsDataURL(blob); });
+    const r = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await window.eaAuth.token()}` },
+      body: JSON.stringify({ action: 'transcribe', audio: b64, type: blob.type }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || 'Couldn’t turn that into text.');
+    if (d.text) {
+      input.value = (input.value.trim() ? `${input.value.trimEnd()} ` : '') + d.text;
+      autosize();
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    } else notice('Didn’t catch any words. Try again.');
+  } catch (err) {
+    notice(err.message || 'Couldn’t turn that into text.');
+  }
+  micBtn.classList.remove('busy');
+  renderModel(); // puts the normal placeholder back
+}
+micBtn.addEventListener('click', () => {
+  if (rec) stopDictation();
+  else if (!micBtn.classList.contains('busy')) startDictation();
 });
 
 let seenChips = new Set(); // chip labels already shown, so only new ones pop in
@@ -490,12 +565,14 @@ async function reply(chat) {
   const body = el('div', { class: 'msg-text' });
   const stepsBox = el('div', { class: 'msg-steps' });
   const steps = []; // connector steps ("Searching Notion for …"), kept with the reply
-  const open = () => { if (li.classList.contains('thinking')) { li.classList.remove('thinking'); li.removeAttribute('aria-label'); fill(li, stepsBox, body); } };
+  const open = () => { if (li.classList.contains('thinking')) { li.classList.remove('thinking'); li.removeAttribute('aria-label'); fill(li, stepsBox, body, foundSlot); } };
   const stepsDone = () => stepsBox.querySelectorAll('.msg-step:not(.done)').forEach((s) => { s.classList.add('done'); s.firstChild.replaceWith(icon('check')); });
   let text = '';
   let error = null;
   const media = []; // images it made
   let job = null; // a video being made
+  const found = []; // pictures from image search
+  const foundSlot = el('div');
   const used = modelById(chat.model);
   if (used && used.kind !== 'chat') li.append(el('span', { class: 'making' }, used.kind === 'video' ? 'Starting your video…' : 'Making your image…'));
   replying = true;
@@ -505,9 +582,16 @@ async function reply(chat) {
     const r = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await window.eaAuth.token()}` },
-      body: JSON.stringify({ model: chat.model, effort: chat.effort, memory: chat.memory, tools: chat.tools || [], driveFiles: driveFilesIn(chat), messages: toApi(chat) }),
+      body: JSON.stringify({
+        model: chat.model, effort: chat.effort, memory: chat.memory, tools: chat.tools || [], driveFiles: driveFilesIn(chat), messages: toApi(chat),
+        clock: { tz: Intl.DateTimeFormat().resolvedOptions().timeZone }, // so "tonight" means your tonight
+      }),
     });
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Something went wrong. Please try again.');
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      if (d.banned && typeof showBanned === 'function') showBanned(d.banned);
+      throw new Error(d.error || 'Something went wrong. Please try again.');
+    }
     const reader = r.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -534,6 +618,10 @@ async function reply(chat) {
           text += ev.text;
           body.textContent = text;
           if (stick) thread.scrollTop = thread.scrollHeight;
+        } else if (ev.type === 'found' && Array.isArray(ev.items)) {
+          open();
+          found.push(...ev.items);
+          fill(foundSlot, foundBox(found));
         } else if (ev.type === 'image' && ev.url) media.push({ type: 'image', url: ev.url });
         else if (ev.type === 'video-job' && ev.jobId) job = { id: ev.jobId, status: 'pending' };
         else if (ev.type === 'error') error = ev.error;
@@ -548,7 +636,7 @@ async function reply(chat) {
   autosize();
   stepsDone();
   if (text || media.length || job) {
-    const m = { role: 'assistant', text, at: Date.now(), model: chat.model, ...(steps.length && { steps }), ...(media.length && { media }), ...(job && { job }) };
+    const m = { role: 'assistant', text, at: Date.now(), model: chat.model, ...(steps.length && { steps }), ...(media.length && { media }), ...(job && { job }), ...(found.length && { found }) };
     chat.messages.push(m);
     chat.updatedAt = Date.now();
     saveChats();

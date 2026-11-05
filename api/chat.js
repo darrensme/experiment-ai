@@ -13,12 +13,26 @@
 // spending is still recorded.
 import { HttpError, handle, requireUser } from './_shared.js';
 import {
-  EFFORTS, GATEWAY, MODELS, PLANS, addSpent, budgetsFor, costOf, effortFor, inputRate, isUnlimited, kindOf, modelInfo,
-  outputRate, planOf, requireAccess, reserve,
+  EFFORTS, GATEWAY, MODELS, PLANS, addSpent, budgetsFor, costOf, effortFor, inputRate, kindOf, modelInfo,
+  outputRate, planOf, requireAccess, reserve, unlimitedFor,
 } from './_ai.js';
 import { MEMORY_MAX, promptFromProfile, readProfile, saveMemories } from './_profile.js';
 import { TOOLS } from './_connectors.js';
-import { TOOL_DEFS, connectedOf, labelFor, runTool, toolsPrompt } from './_tools.js';
+import {
+  IMAGE_SEARCH_TOOL, SEARCH_COST, TOOL_DEFS, WEB_TOOL, connectedOf, imageSearch, imageSearchOn, labelFor, runTool, toolsPrompt, webSearch,
+} from './_tools.js';
+import { createGateway, transcribe } from 'ai';
+
+const TRANSCRIBE_MODEL = 'openai/gpt-4o-mini-transcribe';
+const AUDIO_MAX = 4_000_000; // characters of base64 (about 3 MB of audio, several minutes)
+// "Wednesday, November 5, 2026, 7:42 PM (America/New_York)" from what the app sends
+function localClock(clock) {
+  const tz = typeof clock?.tz === 'string' && /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+){0,2}$/.test(clock.tz) ? clock.tz : null;
+  try {
+    const when = new Date().toLocaleString('en-US', { timeZone: tz || 'UTC', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    return `The person’s local date and time is ${when} (${tz || 'UTC'}). Use it for words like “today” and “tonight”.`;
+  } catch { return ''; }
+}
 import { checkVideoJob, imagePrice, isBlobUrl, makeImage, partsForFiles, startVideoJob, videoPrice } from './_media.js';
 
 const FILE_ROUNDS = 3; // files from the last 3 messages that have them go to the model (older ones by name only)
@@ -82,12 +96,28 @@ export default handle(async (req, res) => {
   if (!key) throw new HttpError(503, 'Experiment AI isn’t switched on yet. Please try again later.');
 
   const user = await requireUser(req);
-  requireAccess(user);
+  await requireAccess(user);
+
+  // Dictation: a recording from the message bar's mic → text (not kept)
+  if (req.body?.action === 'transcribe') {
+    const audio = String(req.body.audio || '');
+    if (!audio || audio.length > AUDIO_MAX || !/^[A-Za-z0-9+/=]+$/.test(audio)) throw new HttpError(400, audio.length > AUDIO_MAX ? 'That recording is too long. Keep it under 3 minutes.' : 'No recording came through.');
+    let result;
+    try {
+      result = await transcribe({ model: createGateway({ apiKey: key }).transcriptionModel(TRANSCRIBE_MODEL), audio: Buffer.from(audio, 'base64') });
+    } catch (err) {
+      console.error('transcribe', err?.message);
+      throw new HttpError(502, 'Couldn’t understand that recording. Try again.');
+    }
+    const cost = Math.max(0.0005, (result.durationInSeconds || 30) * 0.00005); // ~ $0.003 a minute
+    await addSpent(user.uid, cost, TRANSCRIBE_MODEL, cost).catch(() => {});
+    return res.status(200).json({ text: (result.text || '').trim() });
+  }
 
   // A video being made: check on it (a failed one gives its cost back)
   if (req.body?.action === 'video-status') {
     const r = await checkVideoJob({ key, uid: user.uid, jobId: String(req.body.jobId || '') });
-    if (r.status === 'error' && !r.settled && r.cost > 0 && !isUnlimited(user)) await addSpent(user.uid, -r.cost);
+    if (r.status === 'error' && !r.settled && r.cost > 0) await addSpent(user.uid, -r.cost); // unlimited jobs store cost 0
     return res.status(200).json({ status: r.status, url: r.url || null, error: r.error || null });
   }
 
@@ -95,16 +125,21 @@ export default handle(async (req, res) => {
   const [plan, profile, tools] = await Promise.all([
     planOf(user.uid), readProfile(user.uid), wantedTools.length ? connectedOf(user.uid, wantedTools) : [],
   ]);
-  const unlimited = isUnlimited(user);
+  const unlimited = await unlimitedFor(user);
   const rank = unlimited ? PLANS.length - 1 : PLANS.indexOf(plan);
   // Memory is for Light and up; it's used only when the chat has it switched on.
   const memoryOn = req.body?.memory === true && rank >= 1;
+  const picturesOn = imageSearchOn();
+  const clockLine = localClock(req.body?.clock);
   const instructions = system(
+    clockLine,
     promptFromProfile(profile, user, { memory: memoryOn }),
+    'You can search the web with web_search. Search only when the answer depends on current or recent information (news, today’s or tonight’s games and scores, schedules, weather, prices, recent releases) or a fact you’re unsure of. Never search for maths, writing, coding or things you already know well. When you use results, mention the sources with links.',
+    picturesOn && 'When the person wants to see what something real looks like, use image_search: the pictures appear under your answer by themselves, so just describe or introduce them.',
     memoryOn && 'Memory is on: when the person shares something worth remembering long-term (a preference, a fact about themselves, an ongoing project) or asks you to remember something, call save_memory with one short sentence. Don’t mention saving unless they asked.',
     toolsPrompt(tools, tools.includes('google') ? driveFilesOf(req.body) : []),
   );
-  const toolDefs = [...tools.flatMap((t) => TOOL_DEFS[t]), ...(memoryOn ? [MEMORY_TOOL] : [])];
+  const toolDefs = [...tools.flatMap((t) => TOOL_DEFS[t]), ...(memoryOn ? [MEMORY_TOOL] : []), WEB_TOOL, ...(picturesOn ? [IMAGE_SEARCH_TOOL] : [])];
 
   const id = String(req.body?.model || '');
   if (!(id in MODELS)) throw new HttpError(400, id ? 'That model isn’t available yet. Pick another one.' : 'Pick a model first.');
@@ -310,6 +345,20 @@ export default handle(async (req, res) => {
     for (const c of toolCalls) {
       let args = {};
       try { args = JSON.parse(c.args || '{}'); } catch {}
+      if (c.name === 'web_search') {
+        send({ type: 'tool', label: `Searching the web for “${String(args.query || '').slice(0, 60)}”`, search: true });
+        const found = await webSearch(key, user.uid, args, clockLine).catch(() => ({ text: 'Error: the web search didn’t work.', usage: null }));
+        cost += SEARCH_COST + (found.usage ? costOf(await modelInfo(found.model), found.usage) : 0);
+        convo.push({ role: 'tool', tool_call_id: c.id, content: found.text });
+        continue;
+      }
+      if (c.name === 'image_search' && picturesOn) {
+        send({ type: 'tool', label: `Finding pictures of “${String(args.query || '').slice(0, 60)}”` });
+        const found = await imageSearch(args).catch(() => ({ text: 'Error: image search didn’t work.', items: [] }));
+        if (found.items.length) send({ type: 'found', items: found.items });
+        convo.push({ role: 'tool', tool_call_id: c.id, content: found.text });
+        continue;
+      }
       if (c.name === 'save_memory' && memoryOn) {
         const result = await rememberThis(user.uid, profile, args.text).catch((err) => `Error: ${err.message}`);
         if (result === 'Saved.') send({ type: 'tool', label: `Saved to memory: “${String(args.text).slice(0, 80)}”`, memory: String(args.text).slice(0, 400) });

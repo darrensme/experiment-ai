@@ -36,12 +36,13 @@ async function api(path, body = {}) {
     body: JSON.stringify(body),
   });
   const data = await r.json().catch(() => ({}));
+  if (data.banned) showBanned(data.banned);
   if (!r.ok) throw new Error(data.error || 'Something went wrong. Please try again.');
   return data;
 }
-async function loadUsage(force = false) {
+async function loadUsage(force = false, card = false) {
   if (!force && usageData && Date.now() - usageAt < 30_000) return usageData;
-  usageData = await api('/api/usage');
+  usageData = await api('/api/usage', card ? { card: true } : {});
   usageAt = Date.now();
   renderPlanLabel();
   return usageData;
@@ -204,6 +205,7 @@ async function afterSignIn() {
     try { localStorage.setItem('ea.prefs', JSON.stringify(prefs)); } catch {}
     applyPrefs();
     profile.avatar = got.avatar || null;
+    if (got.isAdmin && !isAdminUser) { isAdminUser = true; buildTabs(); }
     showAvatar();
   } catch {}
   loadUsage().catch(() => {});
@@ -261,9 +263,16 @@ function svgIcon(paths) {
   svg.innerHTML = paths;
   return svg;
 }
-fill($('settings-tabs'), TABS.map(([key, label, paths]) => el('button', {
-  type: 'button', class: 'settings-tab', role: 'tab', id: `tab-${key}`, 'aria-controls': 'settings-body', onclick: () => showTab(key),
-}, svgIcon(paths), label)));
+// the Admin tab only appears for admins (api/settings.js 'get' says isAdmin)
+let isAdminUser = false;
+const ADMIN_TAB = ['admin', 'Admin', '<path d="M12 3.5 5 6.5v5c0 4.2 3 7.6 7 9 4-1.4 7-4.8 7-9v-5z"/><path d="m9 12 2 2 4-4"/>'];
+const visibleTabs = () => (isAdminUser ? [...TABS, ADMIN_TAB] : TABS);
+function buildTabs() {
+  fill($('settings-tabs'), visibleTabs().map(([key, label, paths]) => el('button', {
+    type: 'button', class: `settings-tab${key === 'admin' ? ' tab-admin' : ''}`, role: 'tab', id: `tab-${key}`, 'aria-controls': 'settings-body', onclick: () => showTab(key),
+  }, svgIcon(paths), label)));
+}
+buildTabs();
 
 function showTab(tab) {
   settingsTab = tab;
@@ -274,7 +283,7 @@ function showTab(tab) {
     if (on && phone.matches) b.scrollIntoView({ block: 'nearest', inline: 'center' });
   });
   settingsBody.setAttribute('aria-labelledby', `tab-${tab}`);
-  ({ account: renderAccount, billing: renderBilling, usage: renderUsage, personalization: renderPersonal, connectors: renderConnectors })[tab]();
+  ({ account: renderAccount, billing: renderBilling, usage: renderUsage, personalization: renderPersonal, connectors: renderConnectors, admin: () => renderAdmin() })[tab]();
   settingsBody.scrollTop = 0;
   replay(settingsBody, 'view-in');
 }
@@ -282,8 +291,9 @@ function showTab(tab) {
 $('settings-tabs').addEventListener('keydown', (e) => {
   if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
   e.preventDefault();
-  const i = TABS.findIndex(([k]) => k === settingsTab);
-  const next = TABS[(i + (e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : -1) + TABS.length) % TABS.length][0];
+  const tabs = visibleTabs();
+  const i = tabs.findIndex(([k]) => k === settingsTab);
+  const next = tabs[(i + (e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length][0];
   showTab(next);
   $(`tab-${next}`).focus();
 });
@@ -451,11 +461,25 @@ function renderUpgradeLabel() {
   if (item) item.textContent = planButtonLabel();
 }
 
+// The card you pay with: "Visa •••• 4242 · Expires 08/28" (or Link, Apple Pay…)
+const CARD_NAMES = { visa: 'Visa', mastercard: 'Mastercard', amex: 'American Express', discover: 'Discover', jcb: 'JCB', unionpay: 'UnionPay', diners: 'Diners Club', link: 'Link', cartes_bancaires: 'Cartes Bancaires' };
+const WALLETS = { apple_pay: 'Apple Pay', google_pay: 'Google Pay', samsung_pay: 'Samsung Pay', link: 'Link' };
+function payCard(c) {
+  const name = CARD_NAMES[c.brand] || (c.brand ? c.brand[0].toUpperCase() + c.brand.slice(1).replace(/_/g, ' ') : 'Card');
+  const expired = c.expYear && new Date(c.expYear, c.expMonth) <= new Date();
+  return el('div', { class: `pay-card${expired ? ' expired' : ''}` },
+    el('span', { class: `card-art card-${c.brand || 'card'}`, 'aria-hidden': 'true' }, c.brand === 'link' ? 'L' : name.slice(0, 4).toUpperCase()),
+    el('div', { class: 'grow' },
+      el('strong', {}, c.last4 ? `${name} •••• ${c.last4}` : c.email ? `${name} · ${c.email}` : name,
+        c.wallet && el('span', { class: 'pay-wallet' }, ` · ${WALLETS[c.wallet] || c.wallet}`)),
+      c.expMonth && el('small', {}, expired ? `Expired ${String(c.expMonth).padStart(2, '0')}/${String(c.expYear).slice(-2)}. Update it in Manage billing.` : `Expires ${String(c.expMonth).padStart(2, '0')}/${String(c.expYear).slice(-2)}`)));
+}
+
 async function renderBilling() {
   fill(settingsBody, head('Billing', 'Your plan and payments.'), loading());
   if (!signedIn()) { fill(settingsBody, head('Billing'), el('div', { class: 'set-empty' }, el('p', {}, 'Sign in to see your plan.'))); return; }
   let u;
-  try { u = await loadUsage(true); } catch (err) { if (settingsTab === 'billing') fill(settingsBody, head('Billing'), failed(err, renderBilling)); return; }
+  try { u = await loadUsage(true, true); } catch (err) { if (settingsTab === 'billing') fill(settingsBody, head('Billing'), failed(err, renderBilling)); return; }
   if (settingsTab !== 'billing') return;
 
   const plan = currentPlan();
@@ -487,6 +511,7 @@ async function renderBilling() {
             u.unlimited && el('span', { class: 'badge badge-gold' }, 'Unlimited'))),
         el('div', { class: 'plan-amount' }, el('strong', {}, priceText), el('small', {}, per))),
       el('p', { class: 'plan-status' }, status),
+      b?.card && payCard(b.card),
       el('div', { class: 'plan-actions' },
         cancelled && button('Keep my plan', (e) => busy(e.currentTarget, async () => {
           const r = await api('/api/checkout', { plan, billing: b.billing || 'monthly' }); // un-cancels it
@@ -825,6 +850,133 @@ async function loadMemories(box) {
   );
   draw();
 }
+
+/* ───────── Suspended accounts: the reason an admin gave, instead of the app ───────── */
+function showBanned(ban) {
+  if (document.querySelector('.banned-layer')) return;
+  closeSettings();
+  const when = ban?.at ? new Date(ban.at).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' }) : null;
+  document.body.append(el('div', { class: 'banned-layer', role: 'alertdialog', 'aria-modal': 'true', 'aria-labelledby': 'banned-title' },
+    el('div', { class: 'banned-card' },
+      el('div', { class: 'banned-icon', 'aria-hidden': 'true' }, svgIcon('<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>')),
+      el('h2', { id: 'banned-title' }, 'Your account has been ', el('span', { class: 'serif' }, 'suspended')),
+      el('p', {}, 'You can’t use Experiment AI with this account right now.'),
+      ban?.reason && el('div', { class: 'banned-reason' }, el('small', {}, 'Reason'), el('p', {}, ban.reason)),
+      when && el('p', { class: 'banned-when' }, `Suspended on ${when}.`),
+      el('div', { class: 'banned-actions' },
+        el('a', { class: 'btn btn-ghost', href: 'mailto:contact@experimentai.dev?subject=Suspended%20account' }, 'Email us'),
+        el('button', { type: 'button', class: 'btn', onclick: () => logOut() }, 'Log out')),
+      el('button', { type: 'button', class: 'banned-delete', onclick: (e) => busy(e.currentTarget, deleteAccount) }, 'Delete my account and data'))));
+}
+
+/* ───────── Admin (only for admins): find accounts, ban with a reason, override plans, access, usage ───────── */
+let adminState = { query: '', filter: 'all', users: [], next: null };
+const fmtDay = (d) => (d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '—');
+const userBadges = (u) => [
+  el('span', { class: 'badge' }, PLAN_INFO[u.plan]?.name || u.plan),
+  u.override && el('span', { class: 'badge badge-blue' }, 'Overridden'),
+  u.banned && el('span', { class: 'badge badge-red' }, 'Banned'),
+  u.unlimited && el('span', { class: 'badge badge-gold' }, 'Unlimited'),
+  u.admin && el('span', { class: 'badge badge-blue' }, 'Admin'),
+  !u.access && el('span', { class: 'badge' }, 'No app access'),
+];
+const avatarOf = (u) => el('img', { class: 'avatar', src: u.photo || '/assets/potion-orb-icon-pfp.png', alt: '', width: '34', height: '34', referrerpolicy: 'no-referrer' });
+
+async function renderAdmin(more = false) {
+  const top = head('Admin', 'Find an account to ban it, change its plan, let it into the app or reset its usage.');
+  const q = el('input', { class: 'field', type: 'search', placeholder: 'Email, name or user ID', value: adminState.query });
+  const list = el('div', { class: 'set-group admin-list' }, loading());
+  fill(settingsBody, top,
+    el('form', {
+      class: 'admin-search',
+      onsubmit: (e) => { e.preventDefault(); adminState = { ...adminState, query: q.value.trim(), users: [], next: null }; renderAdmin(); },
+    }, q,
+      seg('Show', [['all', 'Everyone'], ['banned', 'Banned']], adminState.filter, (v) => { adminState = { ...adminState, filter: v, users: [], next: null }; renderAdmin(); }),
+      el('button', { type: 'submit', class: 'btn btn-sm' }, 'Search')),
+    list);
+  try {
+    const r = await api('/api/settings', { action: 'admin-users', query: adminState.query, filter: adminState.filter, pageToken: more ? adminState.next : undefined });
+    adminState.users = more ? [...adminState.users, ...r.users] : r.users;
+    adminState.next = r.nextPageToken;
+  } catch (err) { fill(list, failed(err, () => renderAdmin())); return; }
+  if (settingsTab !== 'admin') return;
+  fill(list,
+    adminState.users.length
+      ? adminState.users.map((u) => el('button', { type: 'button', class: 'set-row admin-row', onclick: () => renderAdminUser(u.uid) },
+          avatarOf(u),
+          el('div', { class: 'grow' }, el('strong', {}, u.name || u.email || u.uid), el('small', {}, `${u.email || 'no email'} · joined ${fmtDay(u.created)}`)),
+          el('span', { class: 'admin-badges' }, userBadges(u)),
+          icon('chevron')))
+      : el('p', { class: 'set-empty-row' }, adminState.query ? 'No account matches that.' : adminState.filter === 'banned' ? 'Nobody is banned.' : 'No accounts yet.'),
+    adminState.next && !adminState.query && el('div', { class: 'admin-more' }, button('Load more', () => renderAdmin(true))));
+}
+
+async function renderAdminUser(uid, given = null) {
+  const back = el('button', { type: 'button', class: 'back', onclick: () => renderAdmin() }, icon('back'), 'All accounts');
+  if (!given) fill(settingsBody, back, loading());
+  let u = given;
+  try { if (!u) u = (await api('/api/settings', { action: 'admin-user', uid })).user; } catch (err) { fill(settingsBody, back, failed(err, () => renderAdminUser(uid))); return; }
+  if (settingsTab !== 'admin') return;
+  const act = (action, extra = {}, done) => async () => {
+    const r = await api('/api/settings', { action, uid, ...extra });
+    adminState.users = adminState.users.map((x) => (x.uid === uid ? r.user : x));
+    if (done) notice(done);
+    renderAdminUser(uid, r.user);
+  };
+  const pct = (a, b) => (b > 0 ? Math.min(100, Math.round((a / b) * 100)) : 0);
+  const reason = el('textarea', { class: 'field', rows: '2', maxlength: '500', placeholder: 'Why? They’ll see this when they sign in.' });
+  const override = el('select', { class: 'field', onchange: (e) => busy(e.target, act('admin-plan', { plan: e.target.value === 'stripe' ? null : e.target.value }, 'Plan updated')) },
+    el('option', { value: 'stripe', selected: !u.override }, `From Stripe (${PLAN_INFO[u.stripePlan]?.name || 'Free'})`),
+    PLANS_ALL.map((p) => el('option', { value: p, selected: u.override === p }, `${PLAN_INFO[p].name} (override)`)));
+
+  fill(settingsBody, back,
+    el('div', { class: 'admin-head' },
+      el('img', { class: 'avatar avatar-lg', src: u.photo || '/assets/potion-orb-icon-pfp.png', alt: '', referrerpolicy: 'no-referrer' }),
+      el('div', { class: 'grow' },
+        el('h3', {}, u.name || u.email || 'No name'),
+        el('p', {}, u.email || 'no email', u.verified ? '' : ' · not verified'),
+        el('span', { class: 'admin-badges' }, userBadges(u)))),
+    group('Account',
+      row('User ID', u.uid, button('Copy', () => navigator.clipboard?.writeText(u.uid).then(() => notice('Copied')))),
+      row('Joined', `${fmtDay(u.created)} · last signed in ${fmtDay(u.lastSignIn)}`),
+      row('Signs in with', (u.providers || []).map((p) => (p === 'google.com' ? 'Google' : p === 'password' ? 'Email and password' : p)).join(', ') || '—'),
+      row('Saved chats', String(u.chats ?? '—'))),
+    group('Plan',
+      row('Plan', u.status ? `Stripe: ${PLAN_INFO[u.stripePlan]?.name || 'Free'} (${u.status}${u.cancelAtPeriodEnd ? ', cancelled' : ''}${u.periodEnd ? `, until ${fmtDate(u.periodEnd)}` : ''})` : 'No Stripe subscription', override),
+      row('Unlimited', u.unlimitedBuiltIn ? 'Always on for this account.' : 'No limits and every model, whatever the plan.',
+        toggle('Unlimited', u.unlimited, (on) => act('admin-unlimited', { on }, on ? 'Unlimited on' : 'Unlimited off')().catch((err) => notice(err.message)))),
+      row('App access', 'Let this account use the AI.',
+        toggle('App access', u.access, (on) => act('admin-access', { on }, on ? 'Access given' : 'Access removed')().catch((err) => notice(err.message))))),
+    group('Usage',
+      u.usage && el('div', { class: 'meter' },
+        el('div', { class: 'meter-top' }, el('strong', {}, 'Today'), el('span', { class: 'meter-pct' }, `${pct(u.usage.spent.day, u.usage.budgets.day)}%`)),
+        el('div', { class: 'bar grown' }, el('i', { style: `--p:${pct(u.usage.spent.day, u.usage.budgets.day)}%` }))),
+      u.usage && el('div', { class: 'meter' },
+        el('div', { class: 'meter-top' }, el('strong', {}, 'This week'), el('span', { class: 'meter-pct' }, `${pct(u.usage.spent.week, u.usage.budgets.week)}%`)),
+        el('div', { class: 'bar grown' }, el('i', { style: `--p:${pct(u.usage.spent.week, u.usage.budgets.week)}%` }))),
+      row('Reset usage', 'Puts today and this week back to 0%.', button('Reset', (e) => busy(e.currentTarget, async () => {
+        if (confirm(`Reset ${u.email || 'this account'}’s usage?`)) await act('admin-reset-usage', {}, 'Usage reset')();
+      })))),
+    u.banned
+      ? el('div', { class: 'plan-card cancelled admin-ban' },
+          el('strong', {}, `Banned on ${fmtDay(u.banned.at)}${u.banned.by ? ` by ${u.banned.by}` : ''}`),
+          el('p', { class: 'plan-status' }, u.banned.reason),
+          el('div', { class: 'plan-actions' }, button('Unban', (e) => busy(e.currentTarget, act('admin-unban', {}, 'Unbanned')), 'btn btn-sm')))
+      : !u.admin && [el('h4', { class: 'set-label' }, 'Ban'),
+          el('form', {
+            class: 'set-group set-form',
+            onsubmit: (e) => {
+              e.preventDefault();
+              if (!reason.value.trim()) { reason.focus(); return; }
+              busy(e.submitter, async () => {
+                if (confirm(`Ban ${u.email || 'this account'}? They’ll be signed out and see your reason.`)) await act('admin-ban', { reason: reason.value.trim() }, 'Banned')();
+              });
+            },
+          }, reason, el('div', { class: 'form-actions' }, el('button', { type: 'submit', class: 'btn btn-sm btn-red' }, 'Ban account')))],
+  );
+  settingsBody.scrollTop = 0;
+}
+const PLANS_ALL = ['free', 'light', 'pro', 'max-5x', 'max-10x'];
 
 /* ───────── Connectors (api/connectors.js; each tool's sign-in comes back to /api/connect/<tool>/callback) ───────── */
 async function renderConnectors() {

@@ -3,6 +3,7 @@
 // Every result is cut to RESULT_MAX characters so one big file can't swamp the conversation.
 import { HttpError } from './_shared.js';
 import { PROVIDERS, connectorsOf } from './_connectors.js';
+import { GATEWAY } from './_ai.js';
 
 const RESULT_MAX = 15_000;
 const UA = 'Experiment-AI';
@@ -218,6 +219,66 @@ export async function runTool(uid, allowed, name, rawArgs) {
   } catch (err) {
     return `Error: ${err.message || 'that didn’t work'}`;
   }
+}
+
+/* ── Web search: the AI Gateway's Perplexity search, run through a fast model that hands back the facts with sources.
+      Works the same whichever model is chatting. (Brave is only used for image search, below.) ── */
+const SEARCH_MODEL = 'google/gemini-3.8-flash';
+export const SEARCH_COST = 0.005; // Perplexity: $5 per 1,000 searches
+export const WEB_TOOL = fn('web_search',
+  'Search the web for current or recent information: news, today’s or tonight’s games and scores, schedules, weather, prices, recent releases, or a fact you’re not sure about. Don’t use it for maths, writing, coding or general knowledge you already know.',
+  { query: str('What to look up, in plain words (include dates or places when they matter)') },
+  ['query']);
+// Returns { text, usage } (usage of the helper model, for the bill)
+export async function webSearch(key, uid, { query }, clockLine = '') {
+  const q = String(query || '').trim().slice(0, 400);
+  if (!q) return { text: 'Error: empty search.', usage: null };
+  const r = await fetch(`${GATEWAY}/chat/completions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: SEARCH_MODEL,
+      user: uid,
+      max_tokens: 1200,
+      messages: [
+        { role: 'system', content: `You are a web research helper. Search the web, then report the facts that answer the request: short bullet points, each with its source URL. Include exact dates, times (with time zones) and numbers. Say plainly if you couldn't find it. ${clockLine}` },
+        { role: 'user', content: q },
+      ],
+      tools: [{ type: 'vercel:perplexity_search', config: { max_results: 6 } }],
+    }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    console.error('web search', r.status, JSON.stringify(d).slice(0, 300));
+    return { text: 'Error: the web search didn’t work right now. Answer from what you know and say it may be out of date.', usage: null };
+  }
+  const text = d.choices?.[0]?.message?.content;
+  return { text: cut(typeof text === 'string' && text.trim() ? text : 'No results found.', 8000), usage: d.usage || null, model: SEARCH_MODEL };
+}
+
+/* ── Image search (Brave Images, env BRAVE_API_KEY): the pictures are shown in the reply ── */
+export const IMAGE_SEARCH_TOOL = fn('image_search',
+  'Find real photos or pictures on the web when the person wants to see what something looks like (a place, animal, product, person in the news…). The images are shown to them automatically under your answer; don’t paste image links.',
+  { query: str('What to find pictures of') },
+  ['query']);
+export const imageSearchOn = () => Boolean(process.env.BRAVE_API_KEY);
+const untag = (s) => String(s || '').replace(/<[^>]+>/g, '').replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+const httpsUrl = (u) => (typeof u === 'string' && /^https:\/\/[^\s"'<>]{4,600}$/.test(u) ? u : null);
+// Returns { text for the model, items for the app: [{ thumb, full, title, page, source }] }
+export async function imageSearch({ query }) {
+  const q = String(query || '').trim().slice(0, 300);
+  if (!q) return { text: 'Error: empty search.', items: [] };
+  const r = await fetch(`https://api.search.brave.com/res/v1/images/search?${form({ q, count: '12', safesearch: 'strict' })}`, {
+    headers: { Accept: 'application/json', 'X-Subscription-Token': process.env.BRAVE_API_KEY },
+  });
+  if (!r.ok) { console.error('brave images', r.status, (await r.text()).slice(0, 300)); return { text: 'Error: image search didn’t work right now.', items: [] }; }
+  const d = await r.json();
+  const items = (d.results || []).map((x) => ({
+    thumb: httpsUrl(x.thumbnail?.src), full: httpsUrl(x.properties?.url) || httpsUrl(x.thumbnail?.src),
+    title: untag(x.title).slice(0, 140), page: httpsUrl(x.url), source: untag(x.source || x.meta_url?.hostname || '').slice(0, 80),
+  })).filter((x) => x.thumb && x.page).slice(0, 8);
+  if (!items.length) return { text: 'No pictures found.', items: [] };
+  return { text: `Showed ${items.length} pictures to the person: ${items.map((x, i) => `${i + 1}. ${x.title} (${x.source})`).join('; ')}`, items };
 }
 
 export const toolsPrompt = (tools, driveFiles = []) => {

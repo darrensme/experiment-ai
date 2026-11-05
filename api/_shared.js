@@ -5,9 +5,10 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 
 export class HttpError extends Error {
-  constructor(status, message) {
+  constructor(status, message, extra = null) {
     super(message);
     this.status = status;
+    this.extra = extra; // more fields for the JSON answer (a ban's reason, for example)
   }
 }
 
@@ -24,17 +25,24 @@ function admin() {
 export const auth = () => getAuth(admin());
 export const db = () => getFirestore(admin());
 
-/* The caller proves who they are with their Firebase ID token. */
-export async function requireUser(req) {
+/* The caller proves who they are with their Firebase ID token. A banned account (bans/{uid}, set in Settings › Admin)
+   is turned away with the reason, except where `allowBanned` (they can still delete their account). */
+export async function requireUser(req, { allowBanned = false } = {}) {
   const token = (req.headers.authorization || '').replace(/^Bearer /, '');
   if (!token) throw new HttpError(401, 'Please sign in first.');
+  let user;
   try {
     const { uid } = await auth().verifyIdToken(token);
-    return await auth().getUser(uid);
+    user = await auth().getUser(uid);
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw new HttpError(401, 'Your session expired. Please sign in again.');
   }
+  if (!allowBanned) {
+    const ban = (await db().collection('bans').doc(user.uid).get()).data();
+    if (ban) throw new HttpError(403, 'Your account has been suspended.', { banned: { reason: ban.reason || '', at: ban.at || null } });
+  }
+  return user;
 }
 
 /* Codes are stored only as an HMAC, keyed with the service account's private key. */
@@ -58,7 +66,7 @@ export function handle(fn) {
     } catch (err) {
       const status = err instanceof HttpError ? err.status : 500;
       if (status === 500) console.error(err);
-      res.status(status).json({ error: status === 500 ? 'Something went wrong. Please try again.' : err.message });
+      res.status(status).json({ error: status === 500 ? 'Something went wrong. Please try again.' : err.message, ...(err.extra || {}) });
     }
   };
 }
