@@ -531,19 +531,47 @@ async function renderBilling() {
   );
 }
 
-/* ── The plans pop-up: 4 cards; yours says Current, ones above say Upgrade, ones below say Change ── */
+/* ── The plans pop-up: the same 4 cards as experimentai.dev/pricing (Free, Light, Pro, Max 5×/10×).
+      Yours says "Your plan", ones above say Upgrade, ones below say Switch. ── */
+const PRICING = {
+  free: { name: 'Free', tagline: 'A taste of what Experiment AI can do.', note: 'Limited usage',
+    points: ['-**Limited models:** a selection of our AIs', 'Chat, write, code and deep research', 'Side-by-side answers', 'Works on every device'] },
+  light: { name: 'Light', tagline: 'For everyday questions and quick help.', note: '5× the usage of Free',
+    points: ['**All models:** Grok, Claude, Gemini, ChatGPT & Meta Muse', 'Image generation', 'Upload files and photos', 'Memory across chats', 'Connect your tools'] },
+  pro: { name: 'Pro', tagline: 'For people who use it all day.', note: '2× the usage of Light',
+    points: ['Everything in Light, with **all models**', '**Top image models** in up to 4K', 'Projects: chats that share files and instructions', 'Priority at busy times'] },
+  max: { name: 'Max', tagline: 'For the work that never stops.', note: { '5x': '5× the usage of Pro', '10x': '10× the usage of Pro' },
+    points: ['Everything in Pro, with **all models**', 'Video generation', 'Our highest limits', 'First access to new features', 'Highest priority, always'] },
+};
+const CARD_KEYS = ['free', 'light', 'pro', 'max'];
+const LOCK = '<rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>';
+const cardOf = (p) => (p.startsWith('max') ? 'max' : p);
+const tierOf = (p) => (p === 'max-10x' ? '10x' : '5x');
+const planRank = (p) => (p === 'free' ? -1 : PAID_ORDER.indexOf(p));
+const money = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
+const calm = () => document.documentElement.dataset.motion === 'reduce' || matchMedia('(prefers-reduced-motion: reduce)').matches;
+// "**bold** rest" → <strong>bold</strong> rest; a leading "-" marks a limited item (dash, not tick)
+const point = (t) => el('li', { class: t[0] === '-' ? 'limited' : null },
+  t.replace(/^-/, '').split(/\*\*(.+?)\*\*/).map((s, i) => (i % 2 ? el('strong', {}, s) : s)));
+const yearlySub = (monthly) => `$${(monthly * 10 / 12).toFixed(2)} a month, billed yearly`;
+
 const plansLayer = $('plans');
+const plansBox = plansLayer.querySelector('.plans-box');
 const plansBody = $('plans-body');
 let plansCycle = null;
+let plansTier = '5x';
 const plansOpen = () => isShown(plansLayer);
 async function openPlans() {
   closeAccount();
   closeMenu();
   if (!signedIn()) { notice('Sign in to change your plan.'); return; }
   showPop(plansLayer);
+  plansBox.classList.remove('is-checkout');
+  setPlansTitle('Upgrade your ', 'plan');
   fill(plansBody, loading());
   try { await loadUsage(); } catch (err) { fill(plansBody, failed(err, openPlans)); return; }
   plansCycle = usageData.billing?.billing || plansCycle || 'monthly';
+  plansTier = tierOf(currentPlan());
   renderPlans();
 }
 function closePlans() {
@@ -554,38 +582,137 @@ $('plans-close').addEventListener('click', closePlans);
 document.querySelectorAll('[data-plans]').forEach((b) => b.addEventListener('click', () => openPlans())); // account menu
 plansLayer.addEventListener('pointerdown', (e) => { if (e.target === plansLayer) closePlans(); });
 
+function setPlansTitle(text, word) {
+  fill($('plans-title'), text, el('span', { class: 'serif' }, word));
+}
+// a sliding pill switch, like the pricing page's Monthly / Yearly
+function pill(cls, label, options, value, onPick) {
+  const box = el('div', { class: `pill ${cls}`, role: 'radiogroup', 'aria-label': label, 'data-at': String(options.findIndex(([v]) => v === value)) },
+    el('i', { 'aria-hidden': 'true' }),
+    options.map(([v, ...kids], j) => el('button', {
+      type: 'button', role: 'radio', 'aria-checked': String(v === value),
+      onclick: () => {
+        if (box.dataset.at === String(j)) return;
+        box.dataset.at = String(j);
+        box.querySelectorAll('button').forEach((b, k) => b.setAttribute('aria-checked', String(k === j)));
+        onPick(v);
+      },
+    }, kids)));
+  return box;
+}
+// prices count up or down to their new value
+function countTo(node, to) {
+  const from = node._n ?? to;
+  node._n = to;
+  cancelAnimationFrame(node._raf);
+  if (from === to || calm()) { node.textContent = money(to); return; }
+  const t0 = performance.now();
+  const step = (t) => {
+    const k = Math.min(1, (t - t0) / 700);
+    node.textContent = money(from + (to - from) * (1 - (1 - k) ** 3));
+    if (k < 1) node._raf = requestAnimationFrame(step);
+  };
+  node._raf = requestAnimationFrame(step);
+  replay(node, 'bump');
+}
+// change some text (or a picture) with a quick fade
+function swapTo(node, apply) {
+  const before = node.textContent + (node.src || '');
+  apply();
+  if (before !== node.textContent + (node.src || '')) replay(node, 'swap-in');
+}
+
 function renderPlans() {
   closeCheckout();
+  plansBox.classList.remove('is-checkout');
   const plan = currentPlan();
   const b = usageData.billing;
+  const cycleNow = b?.billing || 'monthly';
   const cancelled = plan !== 'free' && b?.cancelAtPeriodEnd;
-  const rankOf = (p) => PAID_ORDER.indexOf(p); // free = -1
-  $('plans-title').textContent = plan === 'max-10x' ? 'Change your plan' : 'Upgrade your plan';
+  setPlansTitle(plan === 'max-10x' ? 'Change your ' : 'Upgrade your ', 'plan');
+
+  const cards = CARD_KEYS.map((key, i) => {
+    const c = PRICING[key];
+    const idNow = () => (key === 'max' ? `max-${plansTier}` : key);
+    const badge = el('span', { class: 'tier-badge', hidden: true });
+    const icon = el('img', { class: 'tier-icon', src: `/assets/plans/${key === 'max' ? `max-${plansTier}` : key}.svg`, alt: '', width: '72', height: '72' });
+    const amount = el('b', {});
+    const unit = el('span', {});
+    const sub = el('p', { class: 'tier-sub' });
+    const note = el('p', { class: 'tier-note' });
+    const go = el('button', { type: 'button', class: 'btn btn-lg full' });
+    const node = el('article', { class: 'tier', style: `--d:${80 + i * 70}ms` },
+      badge, icon,
+      el('h3', {}, c.name),
+      el('p', { class: 'tier-tagline' }, c.tagline),
+      key === 'max' && pill('max-pill', 'Max usage level', [['5x', 'Max 5×'], ['10x', 'Max 10×']], plansTier, (v) => { plansTier = v; update(); }),
+      el('p', { class: 'tier-price' }, amount, unit),
+      sub, note,
+      el('ul', {}, c.points.map(point)),
+      go);
+    node.addEventListener('pointermove', (e) => {
+      const r = node.getBoundingClientRect();
+      node.style.setProperty('--sx', `${e.clientX - r.left}px`);
+      node.style.setProperty('--sy', `${e.clientY - r.top}px`);
+    });
+
+    function update() {
+      const id = idNow();
+      const pi = PLAN_INFO[id];
+      const yearly = plansCycle === 'yearly' && id !== 'free';
+      const isCurrent = id === plan && (id === 'free' || cycleNow === plansCycle);
+      const sameOtherCycle = id === plan && !isCurrent;
+      const up = planRank(id) > planRank(plan);
+      const recommended = !isCurrent && key === 'pro' && planRank(plan) < planRank('pro');
+      node.classList.toggle('current', isCurrent);
+      node.classList.toggle('featured', recommended);
+      badge.hidden = !isCurrent && !recommended;
+      badge.className = `tier-badge${isCurrent ? ' tier-badge-blue' : ''}`;
+      badge.textContent = isCurrent ? (cancelled && id === plan ? 'Your plan · cancelled' : 'Your plan') : 'Recommended';
+
+      countTo(amount, yearly ? pi.price * 10 : pi.price);
+      swapTo(unit, () => { unit.textContent = id === 'free' ? 'forever' : yearly ? '/ year' : '/ month'; });
+      swapTo(sub, () => { sub.textContent = id === 'free' ? 'Billed monthly' : yearly ? yearlySub(pi.price) : 'Billed monthly'; });
+      sub.classList.toggle('blank', id === 'free');
+      if (key === 'max') {
+        swapTo(note, () => { note.textContent = c.note[plansTier]; });
+        swapTo(icon, () => { icon.src = `/assets/plans/${id}.svg`; });
+      } else note.textContent = c.note;
+
+      // what the button does
+      let label; let dark = recommended || (up && planRank(plan) >= planRank('pro')); let act = null;
+      if (key === 'free') {
+        if (isCurrent) label = 'Your current plan';
+        else if (cancelled && b?.periodEnd) label = `Free from ${fmtDate(b.periodEnd)}`;
+        else { label = 'Downgrade to Free'; act = () => { closePlans(); openSettings('billing'); notice('To go back to Free, cancel in Manage billing.'); }; }
+      } else if (isCurrent && cancelled) { label = 'Keep my plan'; dark = true; act = (e) => busy(e.currentTarget, () => goPlan(id, plan)); }
+      else if (isCurrent) label = 'Your current plan';
+      else {
+        label = sameOtherCycle ? `Switch to ${plansCycle}` : up ? `Upgrade to ${pi.name}` : `Switch to ${pi.name}`;
+        act = (e) => busy(e.currentTarget, () => goPlan(id, plan));
+      }
+      go.className = `btn btn-lg full${dark ? '' : ' btn-ghost'}`;
+      go.textContent = label;
+      go.disabled = !act;
+      go.onclick = act;
+    }
+    update();
+    return { node, update };
+  });
+  // pre-load the other Max picture so switching doesn't flash
+  ['max-5x', 'max-10x'].forEach((p) => { new Image().src = `/assets/plans/${p}.svg`; });
+
   fill(plansBody,
+    el('p', { class: 'plans-lede' }, 'Every major AI in one subscription. Upgrade when you need more.'),
     el('div', { class: 'plans-cycle' },
-      seg('Billing period', [['monthly', 'Monthly'], ['yearly', 'Yearly · 2 months free']], plansCycle, (v) => { plansCycle = v; renderPlans(); })),
-    el('div', { class: 'plans-grid' }, PAID_ORDER.map((p, i) => {
-      const pi = PLAN_INFO[p];
-      const isCurrent = p === plan && (b?.billing || 'monthly') === plansCycle;
-      const up = rankOf(p) > rankOf(plan);
-      const price = plansCycle === 'yearly' ? pi.price * 10 : pi.price;
-      let action;
-      if (isCurrent && cancelled) action = el('button', { type: 'button', class: 'btn plan-go', onclick: (e) => busy(e.currentTarget, () => goPlan(p, plan)) }, 'Keep plan');
-      else if (isCurrent) action = el('button', { type: 'button', class: 'btn btn-ghost plan-go', disabled: true }, 'Current');
-      else action = el('button', { type: 'button', class: `btn plan-go${up ? '' : ' btn-ghost'}`, onclick: (e) => busy(e.currentTarget, () => goPlan(p, plan)) }, up ? 'Upgrade' : 'Change');
-      return el('div', { class: `plan-tile${isCurrent ? ' current' : ''}${p === 'pro' && plan === 'free' ? ' popular' : ''}`, style: `--d:${i * 50}ms` },
-        isCurrent && el('span', { class: 'plan-tag' }, cancelled ? 'Current · cancelled' : 'Current'),
-        !isCurrent && p === 'pro' && plan === 'free' && el('span', { class: 'plan-tag plan-tag-gold' }, 'Most popular'),
-        el('img', { class: 'plan-tile-icon', src: `/assets/plans/${p}.svg`, alt: '', width: '44', height: '44' }),
-        el('h4', {}, pi.name),
-        el('div', { class: 'plan-tile-price' }, el('strong', {}, `$${price}`), el('span', {}, plansCycle === 'yearly' ? '/year' : '/month')),
-        el('ul', {}, PLAN_POINTS[p].map((t) => el('li', {}, icon('check'), t))),
-        action);
-    })),
-    el('p', { class: 'plans-foot' }, plan === 'free'
+      pill('bill-pill', 'Billing period', [['monthly', 'Monthly'], ['yearly', 'Yearly ', el('span', { class: 'save' }, '2 months free')]], plansCycle,
+        (v) => { plansCycle = v; cards.forEach((c) => c.update()); })),
+    el('div', { class: 'tiers' }, cards.map((c) => c.node)),
+    el('p', { class: 'plans-foot' }, svgIcon(LOCK), plan === 'free'
       ? 'Payments are handled securely by Stripe. Cancel anytime in Settings › Billing.'
       : 'Switching charges or credits the difference right away. Cancel anytime in Settings › Billing.'),
   );
+  plansBody.scrollTop = 0;
 }
 
 // Upgrade/Change: no subscription yet → Stripe checkout right here; already subscribed → switched at once
@@ -598,10 +725,10 @@ async function goPlan(p, from) {
     if (settingsOpen() && settingsTab === 'billing') renderBilling();
     return;
   }
-  await openCheckout(r.clientSecret, r.publishableKey, PLAN_INFO[p].name);
+  await openCheckout(r.clientSecret, r.publishableKey, p);
 }
 
-// Stripe's embedded checkout, inside the plans pop-up
+// Stripe's embedded checkout, inside the plans pop-up: your order on the left, the payment form on the right
 let stripeJs = null;
 let embedded = null;
 function loadStripe() {
@@ -613,16 +740,46 @@ function loadStripe() {
   });
   return stripeJs;
 }
-async function openCheckout(secret, key, planName) {
-  const Stripe = await loadStripe();
-  const box = el('div', { class: 'checkout', id: 'checkout' });
-  $('plans-title').textContent = `Upgrade to ${planName}`;
+async function openCheckout(secret, key, p) {
+  const pi = PLAN_INFO[p];
+  const c = PRICING[cardOf(p)];
+  const yearly = plansCycle === 'yearly';
+  const total = yearly ? pi.price * 10 : pi.price;
+  const box = el('div', { class: 'checkout', id: 'checkout' },
+    el('div', { class: 'checkout-wait' }, el('span', { class: 'spinner' }), 'Loading secure checkout…'));
+  plansBox.classList.add('is-checkout');
+  setPlansTitle('Upgrade to ', pi.name);
   fill(plansBody,
-    el('button', { type: 'button', class: 'back', onclick: () => renderPlans() }, icon('back'), 'All plans'),
-    box);
-  embedded = await Stripe(key).initEmbeddedCheckout({ fetchClientSecret: async () => secret });
-  if (box.isConnected) embedded.mount(box);
-  else closeCheckout();
+    el('div', { class: 'co' },
+      el('aside', { class: 'co-summary' },
+        el('button', { type: 'button', class: 'back', onclick: () => renderPlans() }, icon('back'), 'All plans'),
+        el('div', { class: 'co-hero' },
+          el('img', { class: 'co-icon', src: `/assets/plans/${p}.svg`, alt: '', width: '84', height: '84' }),
+          el('div', {}, el('small', {}, 'You’re upgrading to'), el('h3', {}, pi.name))),
+        el('p', { class: 'tier-price' }, el('b', {}, money(total)), el('span', {}, yearly ? '/ year' : '/ month')),
+        el('p', { class: 'tier-sub' }, yearly ? `${yearlySub(pi.price)} · 2 months free` : 'Billed monthly'),
+        el('p', { class: 'tier-note' }, typeof c.note === 'string' ? c.note : c.note[tierOf(p)]),
+        el('ul', { class: 'co-list' }, c.points.map(point)),
+        el('div', { class: 'co-total' },
+          el('div', {}, el('span', {}, 'Due today'), el('small', {}, 'Any tax is added at checkout')),
+          el('strong', {}, money(total))),
+        el('ul', { class: 'co-trust' },
+          el('li', {}, svgIcon(LOCK), 'Secure payment by Stripe'),
+          el('li', {}, icon('check'), 'Cancel anytime in Settings › Billing'),
+          el('li', {}, icon('check'), 'Switch plans whenever you like'))),
+      el('div', { class: 'co-pay' }, box)));
+  plansBody.scrollTop = 0;
+  try {
+    const Stripe = await loadStripe();
+    const ec = await Stripe(key).initEmbeddedCheckout({ fetchClientSecret: async () => secret });
+    if (!box.isConnected) { try { ec.destroy(); } catch {} return; }
+    closeCheckout();
+    embedded = ec;
+    box.replaceChildren();
+    embedded.mount(box);
+  } catch (err) {
+    if (box.isConnected) fill(box, el('div', { class: 'checkout-wait' }, el('p', {}, err.message), button('Back to plans', () => renderPlans())));
+  }
 }
 function closeCheckout() {
   if (!embedded) return;
