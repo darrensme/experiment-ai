@@ -6,23 +6,42 @@ import { HttpError, db } from './_shared.js';
 
 // The two keys are told apart by their prefix, not by which variable holds them (they were saved the other way round
 // once): sk_/rk_ is the secret key, pk_ the publishable one.
-const stripeKeys = () => {
-  const values = [process.env.STRIPE_SECRET_KEY, process.env.STRIPE_PUBLISHABLE_KEY].map((v) => (v || '').trim()).filter(Boolean);
-  return { secret: values.find((v) => /^(sk|rk)_/.test(v)) || null, publishable: values.find((v) => /^pk_/.test(v)) || null };
+// Keys are pulled out of the values even if they were saved with quotes, spaces or "NAME=" in front.
+const VARS = ['STRIPE_SECRET_KEY', 'STRIPE_PUBLISHABLE_KEY'];
+const find = (re) => {
+  for (const name of VARS) {
+    const m = re.exec(String(process.env[name] || ''));
+    if (m) return m[0];
+  }
+  return null;
 };
+const stripeKeys = () => ({
+  secret: find(/\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]+/),
+  publishable: find(/\bpk_(?:live|test)_[A-Za-z0-9]+/),
+});
 export const secretKey = () => stripeKeys().secret;
+// What each variable holds, by kind only (never the key): for the logs and the error message
+const kinds = () => VARS.map((name) => {
+  const v = String(process.env[name] || '').trim();
+  const kind = !v ? 'empty' : /(?:sk|rk)_(?:live|test)_/.test(v) ? 'a secret key' : /pk_(?:live|test)_/.test(v) ? 'a publishable key' : `something else (starts “${v.slice(0, 3)}”)`;
+  return `${name} has ${kind}`;
+}).join('; ');
+function missing(which) {
+  console.error(`stripe: no ${which} key found. ${kinds()}`);
+  return new HttpError(503, `Payments aren’t set up: no ${which} key found (${kinds()}).`);
+}
 
 let client = null;
 export function stripe() {
   if (client) return client;
   const key = secretKey();
-  if (!key) throw new HttpError(503, 'Payments aren’t set up yet. Please try again later.');
+  if (!key) throw missing('secret (sk_…)');
   client = new Stripe(key, { appInfo: { name: 'Experiment AI' } });
   return client;
 }
 export const publishableKey = () => {
   const key = stripeKeys().publishable;
-  if (!key) throw new HttpError(503, 'Payments aren’t set up yet. Please try again later.');
+  if (!key) throw missing('publishable (pk_…)');
   return key;
 };
 
