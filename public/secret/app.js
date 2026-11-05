@@ -110,6 +110,15 @@ function applyPrefs() {
 applyPrefs();
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyPrefs);
 
+/* ── Connectors (Settings → Connectors connects them; the + menu turns them on for a chat) ── */
+const CONNECTORS = [
+  { id: 'google', name: 'Google Drive', logo: '/assets/tools/google-drive.svg', note: 'Pick files from your Drive to use in chats' },
+  { id: 'notion', name: 'Notion', logo: '/assets/tools/notion.svg', note: 'Search and read the pages you share' },
+  { id: 'github', name: 'GitHub', logo: '/assets/tools/github.svg', note: 'Read code, issues and pull requests' },
+  { id: 'canva', name: 'Canva', logo: '/assets/tools/canva.svg', note: 'Find and create designs' },
+];
+let connectorList = null; // [{ tool, setUp, connected, account }] from api/connectors.js (settings.js loads it)
+
 /* ── Saved data (this browser) ── */
 function load(key) {
   try { const v = JSON.parse(localStorage.getItem(key)); return Array.isArray(v) ? v : []; } catch { return []; }
@@ -119,15 +128,16 @@ function save(key, value) {
 }
 let chats = load('ea.chats');       // { id, title, projectId, memory, createdAt, updatedAt, messages: [{ text, at, attachments, files }] }
 let projects = load('ea.projects'); // { id, name, description, files: [{ name, path, size, type, addedAt }], createdAt, updatedAt }
-const saveChats = () => save('ea.chats', chats);
-const saveProjects = () => save('ea.projects', projects);
+// …and to your account when you're signed in (settings.js: queueSync)
+const saveChats = () => { save('ea.chats', chats); if (typeof queueSync === 'function') queueSync(); };
+const saveProjects = () => { save('ea.projects', projects); if (typeof queueSync === 'function') queueSync(); };
 const projectById = (id) => projects.find((p) => p.id === id) || null;
 const chatsIn = (projectId) => chats.filter((c) => c.projectId === projectId);
 const byRecent = (a, b) => b.updatedAt - a.updatedAt;
 
 /* ── Current chat ── */
 let currentId = null;                          // null = the home screen
-let draft = { projectId: null, memory: true }; // settings for a chat that hasn't started yet
+let draft = { projectId: null, memory: true, tools: [] }; // settings for a chat that hasn't started yet (tools = connectors on)
 let attachments = [];                          // [{ kind: 'file' | 'folder', name, files: [...] }]
 let projView = { mode: 'list', id: null };
 let assignNewProject = false;                  // "New project…" from the + menu puts this chat in it
@@ -277,7 +287,7 @@ function setChatting(on) {
 
 function goHome({ projectId = null } = {}) {
   currentId = null;
-  draft = { projectId, memory: true };
+  draft = { projectId, memory: true, tools: [] };
   attachments = [];
   messagesEl.replaceChildren();
   setChatting(false);
@@ -310,11 +320,15 @@ function openChat(id) {
 $('new-chat').addEventListener('click', () => goHome());
 
 function renderMessage(m) {
-  if (m.role === 'assistant') return el('li', { class: 'msg msg-ai' }, el('div', { class: 'msg-text' }, m.text));
+  if (m.role === 'assistant') {
+    return el('li', { class: 'msg msg-ai' },
+      m.steps?.length && el('div', { class: 'msg-steps' }, m.steps.map((s) => el('div', { class: 'msg-step done' }, icon('check'), s))),
+      el('div', { class: 'msg-text' }, m.text));
+  }
   const li = el('li', { class: 'msg' });
   if (m.attachments?.length) {
     li.append(el('div', { class: 'msg-files' }, m.attachments.map((a) => el('span', { class: 'file-chip' },
-      icon(a.kind === 'folder' ? 'folder' : 'file'),
+      a.kind === 'drive' ? el('img', { src: '/assets/tools/google-drive.svg', alt: '', width: '16', height: '16' }) : icon(a.kind === 'folder' ? 'folder' : 'file'),
       el('span', {}, a.kind === 'folder' ? `${a.name} · ${plural(a.count, 'file')}` : a.name)))));
   }
   if (m.text) li.append(el('div', { class: 'msg-text' }, m.text));
@@ -344,7 +358,7 @@ input.addEventListener('keydown', (e) => {
 let seenChips = new Set(); // chip labels already shown, so only new ones pop in
 function chip(iconName, label, removeLabel, onRemove, cls = '') {
   return el('span', { class: `chip ${cls}${seenChips.has(cls + label) ? '' : ' new'}`, 'data-key': cls + label },
-    iconName && icon(iconName),
+    iconName && (typeof iconName === 'string' ? icon(iconName) : iconName), // a name, or an <img> (connector logos)
     el('span', { class: 'chip-label' }, label),
     el('button', { type: 'button', class: 'chip-x', 'aria-label': removeLabel, title: removeLabel, onclick: onRemove }, icon('x')));
 }
@@ -359,8 +373,16 @@ function renderChips() {
   if (!s.memory) {
     items.push(chip(null, 'Memory off', 'Save this chat to memory again', () => { s.memory = true; persistSettings(); }, 'chip-memory'));
   }
+  // connectors switched on for this chat (only ones still connected, once we know)
+  (s.tools || []).forEach((t) => {
+    const c = CONNECTORS.find((x) => x.id === t);
+    const st = connectorList?.find((x) => x.tool === t);
+    if (!c || (st && !st.connected)) return;
+    items.push(chip(el('img', { src: c.logo, alt: '', width: '14', height: '14' }), c.name, `Stop using ${c.name} in this chat`,
+      () => { s.tools = s.tools.filter((x) => x !== t); persistSettings(); }, 'chip-tool'));
+  });
   attachments.forEach((a, i) => items.push(chip(
-    a.kind === 'folder' ? 'folder' : 'file',
+    a.kind === 'drive' ? el('img', { src: '/assets/tools/google-drive.svg', alt: '', width: '14', height: '14' }) : a.kind === 'folder' ? 'folder' : 'file',
     a.kind === 'folder' ? `${a.name} · ${plural(a.files.length, 'file')}` : a.name,
     `Remove ${a.name}`,
     () => { attachments.splice(i, 1); renderChips(); },
@@ -384,13 +406,13 @@ composer.addEventListener('submit', (e) => {
   const now = Date.now();
   let chat = current();
   if (!chat) {
-    chat = { id: uid(), title: titleFor(text, attachments), projectId: draft.projectId, memory: draft.memory, createdAt: now, updatedAt: now, messages: [] };
+    chat = { id: uid(), title: titleFor(text, attachments), projectId: draft.projectId, memory: draft.memory, tools: [...(draft.tools || [])], createdAt: now, updatedAt: now, messages: [] };
     chats.push(chat);
     currentId = chat.id;
   }
   const files = attachments.flatMap((a) => a.files);
   const usedModel = modelById(choice.model);
-  const msg = { text, at: now, model: choice.model, kind: usedModel.kind, effort: usedModel.kind === 'chat' ? choice.effort : null, attachments: attachments.map((a) => ({ kind: a.kind, name: a.name, count: a.files.length })), files };
+  const msg = { text, at: now, model: choice.model, kind: usedModel.kind, effort: usedModel.kind === 'chat' ? choice.effort : null, attachments: attachments.map((a) => ({ kind: a.kind, name: a.name, count: a.files.length, ...(a.id && { id: a.id }) })), files };
   chat.messages.push(msg);
   chat.model = choice.model;
   chat.effort = choice.effort;
@@ -418,15 +440,21 @@ const nearBottom = () => thread.scrollHeight - thread.scrollTop - thread.clientH
 function toApi(chat) {
   return chat.messages.map((m) => (m.role === 'assistant'
     ? { role: 'assistant', content: m.text }
-    : { role: 'user', content: [m.text, m.attachments?.length && `[Attached: ${m.attachments.map((a) => a.name).join(', ')}]`].filter(Boolean).join('\n\n') }))
+    : { role: 'user', content: [m.text, m.attachments?.length && `[Attached: ${m.attachments.map((a) => (a.kind === 'drive' ? `Google Drive file “${a.name}”` : a.name)).join(', ')}]`].filter(Boolean).join('\n\n') }))
     .filter((m) => m.content.trim());
 }
+// every Google Drive file picked in this chat, so the AI can read them
+const driveFilesIn = (chat) => [...new Map(chat.messages.flatMap((m) => (m.attachments || []).filter((a) => a.kind === 'drive' && a.id)).map((a) => [a.id, { id: a.id, name: a.name }])).values()];
 async function reply(chat) {
   const li = el('li', { class: 'msg msg-ai thinking', 'aria-label': 'Experiment AI is answering' },
     el('span', { class: 'dots', 'aria-hidden': 'true' }, el('i'), el('i'), el('i')));
   messagesEl.append(li);
   thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' });
   const body = el('div', { class: 'msg-text' });
+  const stepsBox = el('div', { class: 'msg-steps' });
+  const steps = []; // connector steps ("Searching Notion for …"), kept with the reply
+  const open = () => { if (li.classList.contains('thinking')) { li.classList.remove('thinking'); li.removeAttribute('aria-label'); fill(li, stepsBox, body); } };
+  const stepsDone = () => stepsBox.querySelectorAll('.msg-step:not(.done)').forEach((s) => { s.classList.add('done'); s.firstChild.replaceWith(icon('check')); });
   let text = '';
   let error = null;
   const used = modelById(chat.model);
@@ -438,7 +466,7 @@ async function reply(chat) {
     const r = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await window.eaAuth.token()}` },
-      body: JSON.stringify({ model: chat.model, effort: chat.effort, memory: chat.memory, messages: toApi(chat) }),
+      body: JSON.stringify({ model: chat.model, effort: chat.effort, memory: chat.memory, tools: chat.tools || [], driveFiles: driveFilesIn(chat), messages: toApi(chat) }),
     });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Something went wrong. Please try again.');
     const reader = r.body.getReader();
@@ -453,9 +481,17 @@ async function reply(chat) {
       for (const line of lines) {
         let ev;
         try { ev = JSON.parse(line); } catch { continue; }
-        if (ev.type === 'text') {
+        if (ev.type === 'tool') {
           const stick = nearBottom();
-          if (!text) { li.classList.remove('thinking'); li.removeAttribute('aria-label'); fill(li, body); }
+          open();
+          stepsDone();
+          steps.push(ev.label);
+          stepsBox.append(el('div', { class: 'msg-step' }, el('span', { class: 'spinner' }), ev.label));
+          if (stick) thread.scrollTop = thread.scrollHeight;
+        } else if (ev.type === 'text') {
+          const stick = nearBottom();
+          open();
+          stepsDone();
           text += ev.text;
           body.textContent = text;
           if (stick) thread.scrollTop = thread.scrollHeight;
@@ -469,13 +505,14 @@ async function reply(chat) {
   }
   replying = false;
   autosize();
+  stepsDone();
   if (text) {
-    chat.messages.push({ role: 'assistant', text, at: Date.now(), model: chat.model });
+    chat.messages.push({ role: 'assistant', text, at: Date.now(), model: chat.model, ...(steps.length && { steps }) });
     chat.updatedAt = Date.now();
     saveChats();
   }
   if (error) {
-    if (!text) fill(li);
+    if (!text && !steps.length) fill(li);
     li.classList.remove('thinking');
     li.append(el('div', { class: 'msg-error' }, error));
   }
@@ -690,6 +727,10 @@ function openMenu() {
   renderMenuProjects();
   $('menu-projects').hidden = true;
   $('menu-project-btn').setAttribute('aria-expanded', 'false');
+  $('menu-tools').hidden = true;
+  $('menu-tools-btn').setAttribute('aria-expanded', 'false');
+  renderMenuTools();
+  if (window.eaAuth) loadConnectors().then(() => { if (menuOpen()) renderMenuTools(); }).catch(() => {});
   showPop(plusMenu);
   plusBtn.setAttribute('aria-expanded', 'true');
   placeMenu(plusMenu);
@@ -747,6 +788,56 @@ function renderMenuProjects() {
     }, icon('plus'), 'New project…'),
   );
 }
+
+// + menu → Connectors: switch each connected tool on or off for this chat, connect the others, pick Drive files
+function renderMenuTools() {
+  const s = settings();
+  const on = s.tools || [];
+  const box = $('menu-tools');
+  const count = $('menu-tools-count');
+  const active = on.filter((t) => !connectorList || connectorList.find((x) => x.tool === t)?.connected);
+  count.hidden = !active.length;
+  count.textContent = active.length;
+  if (!window.eaAuth) { fill(box, el('p', { class: 'menu-note' }, 'Sign in to use your connectors.')); return; }
+  if (!connectorList) {
+    fill(box, el('p', { class: 'menu-note' }, 'Loading…'));
+    loadConnectors().then(() => { if (menuOpen()) { renderMenuTools(); placeMenu(plusMenu); } }).catch((err) => fill(box, el('p', { class: 'menu-note' }, err.message)));
+    return;
+  }
+  const manage = () => { closeMenu(); openSettings('connectors'); };
+  fill(box,
+    CONNECTORS.map((c) => {
+      const st = connectorList.find((x) => x.tool === c.id) || {};
+      const logo = el('img', { src: c.logo, alt: '', width: '18', height: '18' });
+      if (!st.connected) {
+        return el('button', { type: 'button', class: 'menu-item tool-row', role: 'menuitem', onclick: manage },
+          logo, el('span', { class: 'grow' }, c.name), el('span', { class: 'tool-connect' }, 'Connect'));
+      }
+      return el('label', { class: 'menu-switch tool-row' },
+        logo,
+        el('span', { class: 'grow' }, el('strong', {}, c.name), st.account && el('small', {}, st.account)),
+        el('input', {
+          type: 'checkbox', class: 'toggle', role: 'switch', 'aria-label': `Use ${c.name} in this chat`, checked: on.includes(c.id),
+          onchange: (e) => {
+            s.tools = e.target.checked ? [...new Set([...on, c.id])] : on.filter((t) => t !== c.id);
+            persistSettings();
+            renderMenuTools();
+          },
+        }));
+    }),
+    connectorList.find((x) => x.tool === 'google')?.connected && el('button', {
+      type: 'button', class: 'menu-item menu-new', role: 'menuitem', onclick: () => pickDrive(),
+    }, icon('plus'), 'Pick files from Google Drive…'),
+    el('button', { type: 'button', class: 'menu-item menu-option', role: 'menuitem', onclick: manage }, el('span', { class: 'grow' }, 'Manage connectors')),
+  );
+}
+$('menu-tools-btn').addEventListener('click', () => {
+  const list = $('menu-tools');
+  list.hidden = !list.hidden;
+  $('menu-tools-btn').setAttribute('aria-expanded', String(!list.hidden));
+  if (!list.hidden) renderMenuTools();
+  placeMenu(plusMenu);
+});
 
 function pickedItems(list, folder) {
   const files = [...list].map((f) => ({ name: f.name, path: f.webkitRelativePath || f.name, size: f.size, type: f.type || '' }));

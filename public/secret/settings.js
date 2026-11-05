@@ -19,12 +19,6 @@ const PLAN_INFO = {
   'max-5x': { name: 'Max 5×', price: 100, note: '5× the usage of Pro' },
   'max-10x': { name: 'Max 10×', price: 200, note: '10× the usage of Pro' },
 };
-const CONNECTORS = [
-  { id: 'google', name: 'Google Drive', logo: '/assets/tools/google-drive.svg', note: 'Pick files from your Drive to use in chats' },
-  { id: 'notion', name: 'Notion', logo: '/assets/tools/notion.svg', note: 'Search and read the pages you share' },
-  { id: 'github', name: 'GitHub', logo: '/assets/tools/github.svg', note: 'Read code, issues and pull requests' },
-  { id: 'canva', name: 'Canva', logo: '/assets/tools/canva.svg', note: 'Open, edit and create designs' },
-];
 
 let settingsTab = 'account';
 let profile = { avatar: null };   // from api/settings (custom picture)
@@ -68,9 +62,125 @@ function savePrefs(patch) {
   if (signedIn()) api('/api/settings', { action: 'save', settings: patch }).catch((err) => notice(err.message));
 }
 
+/* ── Your chats and projects, saved to your account (api/chats.js → Firestore). The browser keeps a copy so the app is
+      instant; after sign-in it loads the account's copy and merges, then every change is saved a moment later. ── */
+let syncMap = null; // { owner, chats: { id: hash }, projects: { id: hash } }: what your account has, as far as we know
+let syncTimer = null;
+let syncing = null;
+let syncWarned = false;
+const hashOf = (o) => {
+  const s = JSON.stringify(o);
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = (h * 33 + s.charCodeAt(i)) | 0;
+  return `${(h >>> 0).toString(36)}.${s.length.toString(36)}`;
+};
+const readSyncMap = () => { try { return JSON.parse(localStorage.getItem('ea.synced')) || null; } catch { return null; } };
+const writeSyncMap = () => { try { localStorage.setItem('ea.synced', JSON.stringify(syncMap)); } catch {} };
+
+async function syncFromAccount() {
+  const me = window.eaAuth.uid;
+  let known = readSyncMap();
+  if (known && known.owner !== me) { // this browser has another account's chats: never mix them into this one
+    chats = [];
+    projects = [];
+    known = null;
+  }
+  known ||= { chats: {}, projects: {} };
+  const remote = { chats: [], projects: [] };
+  let after = null;
+  do {
+    const page = await api('/api/chats', { action: 'all', after });
+    remote.chats.push(...page.chats);
+    if (page.projects) remote.projects = page.projects;
+    after = page.next;
+  } while (after);
+
+  syncMap = { owner: me, chats: {}, projects: {} };
+  // newer copy wins (the account's on a tie); something only here is kept if it was never saved, and dropped if it
+  // was saved before (it was deleted on another device)
+  const merge = (local, theirs, key) => {
+    const byId = new Map(theirs.map((r) => [r.id, r]));
+    const out = [];
+    for (const l of local) {
+      const r = byId.get(l.id);
+      if (r) out.push((r.updatedAt || 0) >= (l.updatedAt || 0) ? r : l);
+      else if (!known[key]?.[l.id]) out.push(l);
+    }
+    for (const r of theirs) if (!local.some((l) => l.id === r.id)) out.push(r);
+    for (const r of theirs) syncMap[key][r.id] = hashOf(r);
+    return out;
+  };
+  const openId = currentId;
+  chats = merge(chats, remote.chats, 'chats');
+  projects = merge(projects, remote.projects, 'projects');
+  save('ea.chats', chats);
+  save('ea.projects', projects);
+  writeSyncMap();
+
+  // show what came in
+  seenChats = null;
+  if (openId && !current()) goHome();
+  else if (openId && !replying) openChat(openId);
+  else renderSidebar();
+  renderChips();
+  if (projectsOpen()) renderProjects();
+  queueSync(); // upload what's only here
+}
+
+function queueSync() {
+  if (!syncMap) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(flushSync, 800);
+}
+// Save every changed chat and project, delete the deleted ones. Returns true when your account is up to date.
+async function flushSync() {
+  clearTimeout(syncTimer);
+  if (!syncMap || !signedIn()) return false;
+  while (syncing) await syncing.catch(() => {});
+  syncing = (async () => {
+    for (const c of [...chats]) {
+      const h = hashOf(c);
+      if (syncMap.chats[c.id] === h) continue;
+      await api('/api/chats', { action: 'save', chat: c });
+      syncMap.chats[c.id] = h;
+    }
+    for (const id of Object.keys(syncMap.chats)) {
+      if (chats.some((c) => c.id === id)) continue;
+      await api('/api/chats', { action: 'delete', id });
+      delete syncMap.chats[id];
+    }
+    for (const p of [...projects]) {
+      const h = hashOf(p);
+      if (syncMap.projects[p.id] === h) continue;
+      await api('/api/chats', { action: 'project-save', project: p });
+      syncMap.projects[p.id] = h;
+    }
+    for (const id of Object.keys(syncMap.projects)) {
+      if (projects.some((p) => p.id === id)) continue;
+      await api('/api/chats', { action: 'project-delete', id });
+      delete syncMap.projects[id];
+    }
+  })();
+  try {
+    await syncing;
+    syncWarned = false;
+    return true;
+  } catch (err) {
+    if (!syncWarned) { syncWarned = true; notice(`Couldn’t save to your account: ${err.message}`); }
+    syncTimer = setTimeout(flushSync, 15_000); // try again in a bit
+    return false;
+  } finally {
+    syncing = null;
+    writeSyncMap();
+  }
+}
+// leaving the page with changes still waiting: save them now
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && syncTimer) flushSync(); });
+
 /* ── Once sign-in is known (called from app.js's setAccount) ── */
 async function afterSignIn() {
   if (!signedIn()) return;
+  syncFromAccount().catch((err) => notice(`Couldn’t load your chats: ${err.message}`));
   try {
     const got = await api('/api/settings', { action: 'get' });
     const synced = {};
@@ -251,7 +361,7 @@ function renderAccount() {
       }))),
     ),
     group('Your data',
-      row('Export your data', 'Download your account, settings, plan, usage and chats as a JSON file.', button('Export', (e) => busy(e.currentTarget, exportData))),
+      row('Export your data', 'Download your account, settings, plan, usage, chats and projects as a JSON file.', button('Export', (e) => busy(e.currentTarget, exportData))),
     ),
     group('Danger zone',
       el('div', { class: 'set-row' },
@@ -261,7 +371,11 @@ function renderAccount() {
   );
 }
 
+// Your chats are in your account, so this browser's copy is cleared on log out (once everything's saved)
 async function logOut() {
+  let saved = false;
+  try { saved = await flushSync(); } catch {}
+  if (saved) { try { ['ea.chats', 'ea.projects', 'ea.synced'].forEach((k) => localStorage.removeItem(k)); } catch {} }
   try { await window.eaAuth.signOut(); } finally { location.replace('/'); }
 }
 
@@ -292,9 +406,8 @@ async function changeAvatar(e) {
 }
 
 async function exportData() {
+  await flushSync(); // make sure the newest changes are in your account first
   const data = await api('/api/settings', { action: 'export' });
-  data.inThisBrowser = { chats, projects }; // chats and projects are kept in this browser for now
-  delete data.note;
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
   el('a', { href: url, download: 'experiment-ai-data.json' }).click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
@@ -519,13 +632,64 @@ function renderPersonal() {
   );
 }
 
+let connectorsAt = 0;
+async function loadConnectors(force = false) {
+  if (!force && connectorList && Date.now() - connectorsAt < 60_000) return connectorList;
+  connectorList = (await api('/api/connectors', { action: 'list' })).connectors;
+  connectorsAt = Date.now();
+  renderChips(); // drop chips for tools that aren't connected any more
+  return connectorList;
+}
+
+// Google Drive picker: the files picked become readable by Experiment AI (drive.file) and are attached to the message
+let gapiReady = null;
+function loadPicker() {
+  gapiReady ||= new Promise((ok, bad) => {
+    const s = el('script', { src: 'https://apis.google.com/js/api.js' });
+    s.onload = () => window.gapi.load('picker', { callback: ok, onerror: () => bad(new Error('Couldn’t open Google Drive.')) });
+    s.onerror = () => { gapiReady = null; bad(new Error('Couldn’t open Google Drive. Check your connection.')); };
+    document.head.append(s);
+  });
+  return gapiReady;
+}
+async function pickDrive() {
+  closeMenu();
+  try {
+    const [{ token, key, appId }] = await Promise.all([api('/api/connectors', { action: 'picker', tool: 'google' }), loadPicker()]);
+    const P = window.google.picker;
+    const view = new P.DocsView(P.ViewId.DOCS).setIncludeFolders(true).setSelectFolderEnabled(false);
+    new P.PickerBuilder()
+      .addView(view)
+      .enableFeature(P.Feature.MULTISELECT_ENABLED)
+      .setOAuthToken(token)
+      .setDeveloperKey(key)
+      .setAppId(appId)
+      .setTitle('Pick files for Experiment AI')
+      .setCallback((d) => {
+        if (d[P.Response.ACTION] !== P.Action.PICKED) return;
+        for (const doc of d[P.Response.DOCUMENTS]) {
+          const id = doc[P.Document.ID];
+          if (!attachments.some((a) => a.id === id)) attachments.push({ kind: 'drive', id, name: doc[P.Document.NAME], files: [] });
+        }
+        const s = settings();
+        if (!(s.tools || []).includes('google')) s.tools = [...(s.tools || []), 'google']; // reading them needs Drive on
+        persistSettings();
+        input.focus();
+      })
+      .build()
+      .setVisible(true);
+  } catch (err) {
+    notice(err.message || 'Couldn’t open Google Drive.');
+  }
+}
+
 /* ───────── Connectors (api/connectors.js; each tool's sign-in comes back to /api/connect/<tool>/callback) ───────── */
 async function renderConnectors() {
   const top = head('Connectors', 'Let Experiment AI use your other tools. Connect once and it works in every chat.');
   fill(settingsBody, top, loading());
   if (!signedIn()) { fill(settingsBody, top, el('div', { class: 'set-empty' }, el('p', {}, 'Sign in to connect your tools.'))); return; }
   let list;
-  try { list = (await api('/api/connectors', { action: 'list' })).connectors; } catch (err) { if (settingsTab === 'connectors') fill(settingsBody, top, failed(err, renderConnectors)); return; }
+  try { list = await loadConnectors(true); } catch (err) { if (settingsTab === 'connectors') fill(settingsBody, top, failed(err, renderConnectors)); return; }
   if (settingsTab !== 'connectors') return;
   const byTool = Object.fromEntries(list.map((c) => [c.tool, c]));
 

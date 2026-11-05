@@ -3,11 +3,13 @@
 //   list                → { connectors: [{ tool, setUp, connected, account, connectedAt }] } (never the tokens)
 //   connect { tool }    → { url } the provider's sign-in page
 //   disconnect { tool } → revokes the access where the provider allows it and forgets it → { disconnected: true }
+//   picker { tool: 'google' } → { token, key, appId } for the Google Drive picker in the + menu
 // GET /api/connect/<tool>/callback?code=…&state=… (vercel.json rewrites it here with ?tool=) — where Google, Notion,
 // GitHub and Canva send people back. Saves the connection, then returns to /home?connected=<tool> or ?connect_error=…
 import { HttpError, handle, requireUser } from './_shared.js';
 import { requireVerified } from './_ai.js';
 import { PROVIDERS, TOOLS, connectorsOf, disconnect, finishConnect, isSetUp, startConnect } from './_connectors.js';
+import { accessToken } from './_tools.js';
 
 const api = handle(async (req, res) => {
   const user = await requireUser(req);
@@ -30,6 +32,12 @@ const api = handle(async (req, res) => {
   if (action === 'disconnect') {
     await disconnect(user.uid, tool);
     return res.status(200).json({ disconnected: true });
+  }
+  if (action === 'picker' && tool === 'google') {
+    // Google Picker runs in the browser with the person's own (drive.file) token; files they pick become readable here
+    const key = process.env.GOOGLE_PICKER_KEY;
+    if (!key) throw new HttpError(503, 'The Google Drive picker isn’t set up yet.');
+    return res.status(200).json({ token: await accessToken(user.uid, 'google'), key, appId: String(process.env.GOOGLE_CLIENT_ID || '').split('-')[0] });
   }
   throw new HttpError(400, 'Unknown connectors action.');
 });

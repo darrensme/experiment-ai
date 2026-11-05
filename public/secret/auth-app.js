@@ -8,6 +8,7 @@ const LIVE = /(^|\.)experimentai\.dev$/.test(location.hostname);
 const isVerified = (user) => user.emailVerified || user.providerData.some((p) => p.providerId === 'google.com');
 
 document.querySelectorAll('[data-signout]').forEach((b) => b.addEventListener('click', async () => {
+  if (window.eaAuth && typeof window.logOut === 'function') return window.logOut(); // settings.js: saves, clears this browser's copy
   try { await signOut(auth); } finally { location.replace('/'); }
 }));
 
@@ -15,6 +16,7 @@ if (LIVE) {
   onAuthStateChanged(auth, (user) => {
     if (!user || !isVerified(user)) { location.replace('/?login'); return; } // not signed in, or email not confirmed
     window.eaAuth = {
+      uid: user.uid,
       token: () => auth.currentUser.getIdToken(),
       updateName: (displayName) => updateProfile(auth.currentUser, { displayName }),
       signOut: () => signOut(auth),

@@ -37,6 +37,10 @@ export default handle(async (req, res) => {
       const { text, count, ...rest } = d.data();
       return { id: d.id, ...rest };
     });
+    const projects = (await store.collection('profiles').doc(user.uid).collection('projects').get()).docs.map((d) => ({ id: d.id, ...d.data() }));
+    const connectors = (await store.collection('profiles').doc(user.uid).collection('connectors').get()).docs
+      .map((d) => ({ tool: d.id, account: d.data().account || null, connectedAt: d.data().connectedAt || null })); // never the tokens
+    if (profile) delete profile.avatar; // a big picture string; it's in your account, not useful here
     res.setHeader('Content-Disposition', 'attachment; filename="experiment-ai-data.json"');
     return res.status(200).json({
       exportedAt: new Date().toISOString(),
@@ -45,8 +49,7 @@ export default handle(async (req, res) => {
         signInMethods: user.providerData.map((p) => p.providerId),
         created: user.metadata.creationTime, lastSignIn: user.metadata.lastSignInTime,
       },
-      settings: profile, plan, usage, waitlist, chats,
-      note: 'Projects are kept in your browser for now, so they are not part of this file.',
+      settings: profile, plan, usage, waitlist, chats, projects, connectors,
     });
   }
   if (action === 'signout-all') {
