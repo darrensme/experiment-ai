@@ -335,8 +335,11 @@ const incogIcon = () => icon('incog');
 const incogBar = el('div', { class: 'incog-bar', role: 'status', hidden: true },
   el('span', { class: 'incog-badge' }, incogIcon(), 'Incognito'), 'This chat isn’t saved and memory is off. It’s gone when you leave.');
 messagesEl.before(incogBar);
-$('new-chat').after(el('button', { type: 'button', class: 'side-btn', id: 'incog-btn', 'aria-pressed': 'false', title: 'A chat that isn’t saved and doesn’t use memory', onclick: () => goHome({ incognito: !(incog || draft.incognito) }) },
-  incogIcon(), 'Incognito chat'));
+// a small round button in the top-right corner
+app.append(el('button', {
+  type: 'button', class: 'icon-btn glass incog-corner', id: 'incog-btn', 'aria-pressed': 'false', 'aria-label': 'Incognito chat',
+  title: 'Incognito chat: not saved, memory off', onclick: () => goHome({ incognito: !(incog || draft.incognito) }),
+}, incogIcon()));
 
 // Images and videos the AI made (stored in Blob); "?download=1" makes Blob send it as a download
 const downloadUrl = (u) => `${u}${u.includes('?') ? '&' : '?'}download=1`;
