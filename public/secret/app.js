@@ -338,16 +338,146 @@ const foundBox = (items) => el('div', { class: 'found-grid' }, items.map((x) => 
   class: 'found-item', href: x.page, target: '_blank', rel: 'noopener noreferrer', title: `${x.title} · ${x.source}`,
 }, el('img', { src: x.thumb, alt: x.title, loading: 'lazy', referrerpolicy: 'no-referrer' }), el('span', {}, x.source))));
 
+/* ── Buttons under messages: Copy, Read aloud, Retry, thumbs (replies); Copy, Edit (yours) ── */
+Object.assign(ICONS, {
+  copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"/>',
+  speak: '<path d="M4.5 9.5h3l4.5-4v13l-4.5-4h-3z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
+  stopsq: '<rect x="6.5" y="6.5" width="11" height="11" rx="2.5"/>',
+  retry: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4h-4"/>',
+  up: '<path d="M7.5 10.5v9h-3v-9zM7.5 10.5l4-7a2 2 0 0 1 2.6 2.4l-1 3.6h5.4a2 2 0 0 1 2 2.4l-1.4 6.5a2 2 0 0 1-2 1.6H7.5"/>',
+  down: '<path d="M7.5 13.5v-9h-3v9zM7.5 13.5l4 7a2 2 0 0 0 2.6-2.4l-1-3.6h5.4a2 2 0 0 0 2-2.4l-1.4-6.5a2 2 0 0 0-2-1.6H7.5"/>',
+  edit: '<path d="M14.5 5.5l4 4L9 19H5v-4z"/><path d="M12.5 7.5l4 4"/>',
+  pair: '<rect x="3.5" y="5" width="7" height="14" rx="2"/><rect x="13.5" y="5" width="7" height="14" rx="2"/>',
+});
+const chatOf = (m) => chats.find((c) => c.messages.includes(m));
+const actBtn = (name, label, onclick, extra = {}) => el('button', { type: 'button', class: 'act', title: label, 'aria-label': label, onclick, ...extra }, icon(name));
+function copyAct(getText) {
+  const b = actBtn('copy', 'Copy', async () => {
+    try { await navigator.clipboard.writeText(getText()); } catch { notice('Couldn’t copy. Your browser blocked it.'); return; }
+    b.replaceChildren(icon('check'));
+    b.classList.add('done');
+    setTimeout(() => { b.replaceChildren(icon('copy')); b.classList.remove('done'); }, 1500);
+  });
+  return b;
+}
+// Read aloud with the browser's own voice (free, nothing sent anywhere); one message at a time
+let speaking = null; // the button that's speaking
+function speakAct(m) {
+  const b = actBtn('speak', 'Read aloud', () => {
+    const was = speaking;
+    speechSynthesis.cancel();
+    if (was) { was.replaceChildren(icon('speak')); was.title = 'Read aloud'; speaking = null; }
+    if (was === b) return;
+    const u = new SpeechSynthesisUtterance(window.richSpeakable(m.text));
+    u.lang = document.documentElement.lang || 'en';
+    u.onend = u.onerror = () => { if (speaking === b) { b.replaceChildren(icon('speak')); b.title = 'Read aloud'; speaking = null; } };
+    speaking = b;
+    b.replaceChildren(icon('stopsq'));
+    b.title = 'Stop reading';
+    speechSynthesis.speak(u);
+  });
+  if (!('speechSynthesis' in window)) b.hidden = true;
+  return b;
+}
+function rateAct(m, kind) {
+  const b = actBtn(kind, kind === 'up' ? 'Good reply' : 'Bad reply', () => {
+    const chat = chatOf(m);
+    m.rating = m.rating === kind ? undefined : kind;
+    if (chat) saveChats();
+    b.parentElement.querySelectorAll('[data-rate]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.rate === m.rating)));
+  }, { 'data-rate': kind, 'aria-pressed': String(m.rating === kind) });
+  return b;
+}
+// Retry: ask again from that point, with the model (and side by side choice) picked under the bar now
+function retryFrom(m) {
+  const chat = chatOf(m);
+  if (!chat || replying) return;
+  chat.messages.length = chat.messages.indexOf(m);
+  rerun(chat);
+}
+// re-draw this chat and get a new answer to its last message
+function rerun(chat) {
+  speechSynthesis?.cancel?.();
+  chat.model = choice.model;
+  chat.effort = choice.effort;
+  chat.updatedAt = Date.now();
+  saveChats();
+  messagesEl.replaceChildren(...chat.messages.map(renderMessage));
+  renderSidebar();
+  answer(chat);
+}
+// Edit one of your messages: change it and send again (everything after it is replaced)
+function editMessage(m, li) {
+  if (replying) { notice('Wait for the answer to finish first.'); return; }
+  const box = el('textarea', { class: 'edit-box', rows: '3', 'aria-label': 'Edit your message' });
+  box.value = m.text || '';
+  const done = () => li.replaceWith(renderMessage(m));
+  const save = () => {
+    const text = box.value.trim();
+    const chat = chatOf(m);
+    if (!chat || (!text && !m.attachments?.length)) return;
+    m.text = text;
+    chat.messages.length = chat.messages.indexOf(m) + 1;
+    rerun(chat);
+  };
+  box.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') done();
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); save(); }
+  });
+  li.classList.add('editing');
+  fill(li, el('div', { class: 'msg edit-card' }, box, el('div', { class: 'edit-actions' },
+    el('button', { type: 'button', class: 'btn btn-ghost btn-sm', onclick: done }, 'Cancel'),
+    el('button', { type: 'button', class: 'btn btn-sm', onclick: save }, 'Send'))));
+  box.focus();
+  box.setSelectionRange(box.value.length, box.value.length);
+}
+const richBody = (text) => el('div', { class: 'msg-text rich' }, window.richText(text));
+
+// Side by side: two answers next to each other; "Keep this one" makes it the reply
+function pairBox(m) {
+  return el('div', { class: 'pair' }, m.pair.map((p, i) => {
+    const mod = modelById(p.model);
+    return el('div', { class: 'pair-col' },
+      el('div', { class: 'pair-head' },
+        mod && el('img', { src: BRANDS[mod.brand].logo, alt: '', width: '16', height: '16' }),
+        el('strong', {}, mod ? mod.name : p.model)),
+      p.error ? el('div', { class: 'msg-error' }, p.error) : richBody(p.text),
+      !p.error && el('div', { class: 'pair-foot' },
+        copyAct(() => p.text),
+        el('button', { type: 'button', class: 'mini pair-keep', onclick: () => keepPair(m, i) }, 'Keep this one')));
+  }));
+}
+function keepPair(m, i) {
+  const chat = chatOf(m);
+  const p = m.pair[i];
+  m.text = p.text;
+  m.model = p.model;
+  delete m.pair;
+  if (chat) { chat.updatedAt = Date.now(); saveChats(); }
+  const li = [...messagesEl.children].find((x) => x._msg === m);
+  if (li) li.replaceWith(renderMessage(m));
+}
+
 function renderMessage(m) {
   if (m.role === 'assistant') {
-    return el('li', { class: 'msg msg-ai' },
+    const used = modelById(m.model);
+    const li = el('li', { class: `msg msg-ai${m.pair ? ' msg-pair' : ''}` },
       m.steps?.length && el('div', { class: 'msg-steps' }, m.steps.map((s) => el('div', { class: 'msg-step done' }, icon('check'), s))),
       m.media?.length && mediaBox(m.media),
       m.job && jobBox(m.job),
-      m.text && el('div', { class: 'msg-text' }, m.text),
-      m.found?.length && foundBox(m.found));
+      m.pair ? pairBox(m) : m.text && richBody(m.text),
+      m.found?.length && foundBox(m.found),
+      (m.text || m.pair) && el('div', { class: 'msg-acts' },
+        !m.pair && copyAct(() => m.text),
+        !m.pair && speakAct(m),
+        actBtn('retry', 'Retry with the model picked below', () => retryFrom(m)),
+        !m.pair && rateAct(m, 'up'),
+        !m.pair && rateAct(m, 'down'),
+        used && !m.pair && el('span', { class: 'act-model' }, used.name)));
+    li._msg = m;
+    return li;
   }
-  const li = el('li', { class: 'msg' });
+  const li = el('div', { class: 'msg' });
   const pics = (m.attachments || []).filter((a) => a.url && /^image\//.test(a.type));
   if (pics.length) li.append(el('div', { class: 'msg-pics' }, pics.map((a) => el('a', { href: a.url, target: '_blank', rel: 'noopener' }, el('img', { src: a.url, alt: a.name, loading: 'lazy' })))));
   const others = (m.attachments || []).filter((a) => !pics.includes(a));
@@ -357,7 +487,11 @@ function renderMessage(m) {
       el('span', {}, a.kind === 'folder' ? `${a.name} · ${plural(a.count, 'file')}` : a.name)))));
   }
   if (m.text) li.append(el('div', { class: 'msg-text' }, m.text));
-  return li;
+  const wrap = el('li', { class: 'msg-wrap' }, li, el('div', { class: 'msg-acts mine' },
+    m.text && copyAct(() => m.text),
+    actBtn('edit', 'Edit', () => editMessage(m, wrap))));
+  wrap._msg = m;
+  return wrap;
 }
 
 /* ── Message bar ── */
@@ -457,10 +591,26 @@ function chip(iconName, label, removeLabel, onRemove, cls = '') {
     el('button', { type: 'button', class: 'chip-x', 'aria-label': removeLabel, title: removeLabel, onclick: onRemove }, icon('x')));
 }
 
+// Side by side: a second chat model that answers next to the main one (null = off). Kept in this browser.
+var compareWith; // eslint-disable-line no-var -- read before this line runs on first load
+function getCompare() {
+  if (compareWith === undefined) { try { compareWith = localStorage.getItem('ea.compare') || null; } catch { compareWith = null; } }
+  const b = modelById(compareWith);
+  return b && b.kind === 'chat' ? b : null;
+}
+function setCompare(id) {
+  compareWith = id || null;
+  try { id ? localStorage.setItem('ea.compare', id) : localStorage.removeItem('ea.compare'); } catch {}
+  renderChips();
+}
 function renderChips() {
   const s = settings();
   const project = s.projectId && projectById(s.projectId);
   const items = [];
+  const pairWith = getCompare();
+  if (pairWith && modelById(choice.model)?.kind === 'chat') {
+    items.push(chip('pair', `Side by side · ${pairWith.id === choice.model ? 'pick another model' : `vs ${pairWith.name}`}`, 'Turn off side by side', () => setCompare(null), 'chip-pair'));
+  }
   if (project) {
     items.push(chip('folder', project.name, `Take this chat out of ${project.name}`, () => { s.projectId = null; persistSettings(); }, 'chip-project'));
   }
@@ -532,7 +682,7 @@ composer.addEventListener('submit', (e) => {
   if (projectsOpen()) renderProjects();
   thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' });
   input.focus();
-  reply(chat);
+  answer(chat);
 });
 
 /* ── AI replies: api/chat.js streams JSON lines ({ type: 'text' | 'error' | 'done' }). It uses your Settings
@@ -557,12 +707,68 @@ function toApi(chat) {
 }
 // every Google Drive file picked in this chat, so the AI can read them
 const driveFilesIn = (chat) => [...new Map(chat.messages.flatMap((m) => (m.attachments || []).filter((a) => a.kind === 'drive' && a.id)).map((a) => [a.id, { id: a.id, name: a.name }])).values()];
+// One streamed answer from api/chat.js for `model`; calls on(ev) for each JSON line. Throws on a failed request.
+async function streamChat(chat, model, on) {
+  if (!window.eaAuth) throw new Error('Sign in to get answers.');
+  const r = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await window.eaAuth.token()}` },
+    body: JSON.stringify({
+      model, effort: chat.effort, memory: chat.memory, tools: chat.tools || [], driveFiles: driveFilesIn(chat), messages: toApi(chat),
+      clock: { tz: Intl.DateTimeFormat().resolvedOptions().timeZone }, // so "tonight" means your tonight
+    }),
+  });
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    if (d.banned && typeof showBanned === 'function') showBanned(d.banned);
+    throw new Error(d.error || 'Something went wrong. Please try again.');
+  }
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+    for (const line of lines) {
+      let ev;
+      try { ev = JSON.parse(line); } catch { continue; }
+      on(ev);
+    }
+  }
+}
+// draws streamed Markdown at most once a frame
+function streamPainter(body) {
+  let queued = false;
+  let text = '';
+  return (t) => {
+    text = t;
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => {
+      queued = false;
+      const stick = nearBottom();
+      fill(body, window.richText(text, { streaming: true }));
+      if (stick) thread.scrollTop = thread.scrollHeight;
+    });
+  };
+}
+// a new answer to the chat's last message: side by side when it's on (chat models only)
+function answer(chat) {
+  const b = getCompare();
+  const a = modelById(chat.model);
+  return b && a?.kind === 'chat' && b.id !== a.id ? replyPair(chat, [a.id, b.id]) : reply(chat);
+}
+
 async function reply(chat) {
   const li = el('li', { class: 'msg msg-ai thinking', 'aria-label': 'Experiment AI is answering' },
     el('span', { class: 'dots', 'aria-hidden': 'true' }, el('i'), el('i'), el('i')));
   messagesEl.append(li);
   thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' });
-  const body = el('div', { class: 'msg-text' });
+  const body = el('div', { class: 'msg-text rich' });
+  const paint = streamPainter(body);
   const stepsBox = el('div', { class: 'msg-steps' });
   const steps = []; // connector steps ("Searching Notion for …"), kept with the reply
   const open = () => { if (li.classList.contains('thinking')) { li.classList.remove('thinking'); li.removeAttribute('aria-label'); fill(li, stepsBox, body, foundSlot); } };
@@ -578,56 +784,28 @@ async function reply(chat) {
   replying = true;
   autosize();
   try {
-    if (!window.eaAuth) throw new Error('Sign in to get answers.');
-    const r = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await window.eaAuth.token()}` },
-      body: JSON.stringify({
-        model: chat.model, effort: chat.effort, memory: chat.memory, tools: chat.tools || [], driveFiles: driveFilesIn(chat), messages: toApi(chat),
-        clock: { tz: Intl.DateTimeFormat().resolvedOptions().timeZone }, // so "tonight" means your tonight
-      }),
+    await streamChat(chat, chat.model, (ev) => {
+      if (ev.type === 'tool') {
+        const stick = nearBottom();
+        open();
+        stepsDone();
+        steps.push(ev.label);
+        stepsBox.append(el('div', { class: 'msg-step' }, el('span', { class: 'spinner' }), ev.label));
+        if (stick) thread.scrollTop = thread.scrollHeight;
+      } else if (ev.type === 'text') {
+        open();
+        stepsDone();
+        text += ev.text;
+        paint(text);
+      } else if (ev.type === 'found' && Array.isArray(ev.items)) {
+        open();
+        found.push(...ev.items);
+        fill(foundSlot, foundBox(found));
+      } else if (ev.type === 'image' && ev.url) media.push({ type: 'image', url: ev.url });
+      else if (ev.type === 'video-job' && ev.jobId) job = { id: ev.jobId, status: 'pending' };
+      else if (ev.type === 'error') error = ev.error;
+      else if (ev.type === 'done' && typeof refreshUsageSoon === 'function') refreshUsageSoon(); // Usage shows the new numbers
     });
-    if (!r.ok) {
-      const d = await r.json().catch(() => ({}));
-      if (d.banned && typeof showBanned === 'function') showBanned(d.banned);
-      throw new Error(d.error || 'Something went wrong. Please try again.');
-    }
-    const reader = r.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop();
-      for (const line of lines) {
-        let ev;
-        try { ev = JSON.parse(line); } catch { continue; }
-        if (ev.type === 'tool') {
-          const stick = nearBottom();
-          open();
-          stepsDone();
-          steps.push(ev.label);
-          stepsBox.append(el('div', { class: 'msg-step' }, el('span', { class: 'spinner' }), ev.label));
-          if (stick) thread.scrollTop = thread.scrollHeight;
-        } else if (ev.type === 'text') {
-          const stick = nearBottom();
-          open();
-          stepsDone();
-          text += ev.text;
-          body.textContent = text;
-          if (stick) thread.scrollTop = thread.scrollHeight;
-        } else if (ev.type === 'found' && Array.isArray(ev.items)) {
-          open();
-          found.push(...ev.items);
-          fill(foundSlot, foundBox(found));
-        } else if (ev.type === 'image' && ev.url) media.push({ type: 'image', url: ev.url });
-        else if (ev.type === 'video-job' && ev.jobId) job = { id: ev.jobId, status: 'pending' };
-        else if (ev.type === 'error') error = ev.error;
-        else if (ev.type === 'done' && typeof refreshUsageSoon === 'function') refreshUsageSoon(); // Usage shows the new numbers
-      }
-    }
     if (!text && !media.length && !job && !error) error = 'No answer came back. Please try again.';
   } catch (err) {
     error = err.message || 'Something went wrong. Please try again.';
@@ -640,20 +818,62 @@ async function reply(chat) {
     chat.messages.push(m);
     chat.updatedAt = Date.now();
     saveChats();
-    if (media.length || job) { // show it the same way it shows after a reload
-      const shown = renderMessage(m);
-      li.replaceWith(shown);
-      if (error) shown.append(el('div', { class: 'msg-error' }, error));
-      requestAnimationFrame(() => { thread.scrollTop = thread.scrollHeight; });
-      if (job) pollVideos();
-      return;
-    }
+    // show it the same way it shows after a reload (with its buttons)
+    const stick = nearBottom();
+    const shown = renderMessage(m);
+    li.replaceWith(shown);
+    if (error) shown.append(el('div', { class: 'msg-error' }, error));
+    if (stick || media.length || job) requestAnimationFrame(() => { thread.scrollTop = thread.scrollHeight; });
+    if (job) pollVideos();
+    return;
   }
   if (error) {
     if (!text && !steps.length) fill(li);
     li.classList.remove('thinking');
     li.append(el('div', { class: 'msg-error' }, error));
   }
+}
+
+// Side by side: the same question to two models at once, answers in two columns
+async function replyPair(chat, models) {
+  const cols = models.map((id) => {
+    const mod = modelById(id);
+    const body = el('div', { class: 'msg-text rich' }, el('span', { class: 'dots', 'aria-hidden': 'true' }, el('i'), el('i'), el('i')));
+    return { id, body, text: '', error: null, paint: streamPainter(body),
+      node: el('div', { class: 'pair-col' }, el('div', { class: 'pair-head' }, el('img', { src: BRANDS[mod.brand].logo, alt: '', width: '16', height: '16' }), el('strong', {}, mod.name)), body) };
+  });
+  const li = el('li', { class: 'msg msg-ai msg-pair', 'aria-label': 'Two AIs are answering' }, el('div', { class: 'pair' }, cols.map((c) => c.node)));
+  messagesEl.append(li);
+  thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' });
+  replying = true;
+  autosize();
+  await Promise.all(cols.map(async (c) => {
+    try {
+      await streamChat(chat, c.id, (ev) => {
+        if (ev.type === 'text') { c.text += ev.text; c.paint(c.text); }
+        else if (ev.type === 'error') c.error = ev.error;
+        else if (ev.type === 'done' && typeof refreshUsageSoon === 'function') refreshUsageSoon();
+      });
+      if (!c.text && !c.error) c.error = 'No answer came back.';
+    } catch (err) {
+      c.error = err.message || 'Something went wrong. Please try again.';
+    }
+  }));
+  replying = false;
+  autosize();
+  const ok = cols.find((c) => c.text);
+  if (!ok) {
+    li.classList.remove('msg-pair');
+    fill(li, el('div', { class: 'msg-error' }, cols[0].error));
+    return;
+  }
+  const m = { role: 'assistant', text: ok.text, model: ok.id, at: Date.now(), pair: cols.map((c) => ({ model: c.id, text: c.text, ...(!c.text && { error: c.error }) })) };
+  chat.messages.push(m);
+  chat.updatedAt = Date.now();
+  saveChats();
+  const stick = nearBottom();
+  li.replaceWith(renderMessage(m));
+  if (stick) requestAnimationFrame(() => { thread.scrollTop = thread.scrollHeight; });
 }
 
 /* ── Videos being made: check every few seconds while the app is open (also after a reload) ── */
@@ -800,13 +1020,13 @@ function renderModelMenu() {
       m.brand === b && el('span', { class: 'brand-current' }, shortName(m)),
       icon('chevron'))));
   } else {
-    // one brand: chat models, divider, image models, divider, video models
-    const sections = KINDS.map(([k]) => modelsFor(k, menuBrand)).filter((list) => list.length);
+    // one brand: chat models, then image models, then video models, each under a labelled divider
+    const sections = KINDS.map(([k, label]) => [label, modelsFor(k, menuBrand)]).filter(([, list]) => list.length);
     fill(view,
       el('button', { type: 'button', class: 'back model-back', onclick: () => showBrand(null) },
         icon('back'), el('img', { src: BRANDS[menuBrand].logo, alt: '', width: '16', height: '16' }), BRANDS[menuBrand].name),
-      sections.map((list, i) => [
-        i > 0 && el('div', { class: 'menu-sep model-sep', role: 'separator' }),
+      sections.map(([label, list], i) => [
+        el('div', { class: `model-sep-label${i ? '' : ' first'}`, role: 'separator', 'aria-label': label }, el('span', {}, label)),
         list.map((x) => el('button', {
           type: 'button', class: 'menu-item model-opt', role: 'menuitemradio', 'aria-checked': String(x.id === choice.model),
           title: x.note, onclick: () => setChoice({ model: x.id }),
@@ -1008,6 +1228,42 @@ $('menu-tools-btn').addEventListener('click', () => {
   if (!list.hidden) renderMenuTools();
   placeMenu(plusMenu);
 });
+
+/* ── + menu › Side by side: pick a second AI to answer next to the one under the bar ── */
+const pairCount = el('span', { class: 'menu-count pair-pick', hidden: true });
+const pairItem = el('button', { type: 'button', class: 'menu-item', role: 'menuitem', 'aria-expanded': 'false', 'aria-controls': 'menu-pair' },
+  icon('pair'), el('span', { class: 'grow' }, 'Side by side'), pairCount, icon('chevron'));
+pairItem.lastChild.classList.add('chev');
+const pairList = el('div', { class: 'menu-projects menu-pair', id: 'menu-pair', hidden: true });
+$('menu-tools').after(pairItem, pairList);
+function renderPairMenu() {
+  const b = getCompare();
+  pairCount.hidden = !b;
+  pairCount.textContent = b ? shortName(b) : '';
+  if (pairList.hidden) return;
+  const main = modelById(choice.model);
+  const opt = (id, label, logo) => el('button', {
+    type: 'button', class: 'menu-item menu-option', role: 'menuitemradio', 'aria-checked': String((b?.id || null) === id),
+    disabled: id && id === main.id, title: id && id === main.id ? 'Already answering: it’s the model under the bar' : null,
+    onclick: () => { setCompare(id); closeMenu(); if (id) notice(`Side by side is on: ${modelById(id).name} answers next to ${main.name}`); },
+  }, logo ? el('img', { src: logo, alt: '', width: '16', height: '16' }) : icon('x'), el('span', { class: 'grow' }, label), (b?.id || null) === id && icon('check'));
+  fill(pairList,
+    el('p', { class: 'menu-note' }, main.kind === 'chat' ? `Ask once and get a second answer next to ${main.name}. Keep the one you like.` : 'Side by side works with chat models. Pick one under the bar first.'),
+    main.kind === 'chat' && [
+      opt(null, 'Off'),
+      Object.keys(BRANDS).map((br) => {
+        const list = modelsFor('chat', br);
+        return list.length && [el('div', { class: 'model-sep-label' }, el('span', {}, BRANDS[br].name)), list.map((x) => opt(x.id, x.name, BRANDS[br].logo))];
+      }),
+    ]);
+}
+pairItem.addEventListener('click', () => {
+  pairList.hidden = !pairList.hidden;
+  pairItem.setAttribute('aria-expanded', String(!pairList.hidden));
+  renderPairMenu();
+  placeMenu(plusMenu);
+});
+plusBtn.addEventListener('click', () => { pairList.hidden = true; pairItem.setAttribute('aria-expanded', 'false'); renderPairMenu(); });
 
 function pickedItems(list, folder) {
   const raw = [...list];
