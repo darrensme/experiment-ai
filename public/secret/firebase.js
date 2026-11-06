@@ -1,7 +1,6 @@
-// Firebase: Authentication (Google or email + password) for waitlist accounts, Firestore for the waitlist, Analytics for page views.
+// Firebase: Authentication (Google or email + password) and Firestore. No analytics or tracking of any kind.
 // This web config is public by design. Data is protected by firestore.rules, not by hiding these values.
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/13.0.0/firebase-app.js';
-import { getAnalytics, isSupported, setConsent } from 'https://www.gstatic.com/firebasejs/13.0.0/firebase-analytics.js';
 import { getAuth } from 'https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js';
 import { getFirestore } from 'https://www.gstatic.com/firebasejs/13.0.0/firebase-firestore.js';
 
@@ -16,17 +15,13 @@ const firebaseConfig = {
   storageBucket: 'experiment-labs-ai.firebasestorage.app',
   messagingSenderId: '358435225551',
   appId: '1:358435225551:web:a2aeadeced1699bb51dcba',
-  measurementId: 'G-LS4CG7DZ8W',
 };
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 
-// Cookie-free analytics: with storage consent denied, Google Analytics sends cookieless pings and never
-// writes its _ga cookies. Keep it this way — the site promises "no cookies".
-setConsent({ analytics_storage: 'denied', ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied' });
-isSupported().then((ok) => ok && getAnalytics(app)).catch(() => {});
+// No Google Analytics: it sent visitor data to Google without consent. Don't add analytics back without a consent banner.
 
 /* Friendly text for the Firebase Auth errors people actually hit. */
 const AUTH_ERRORS = {

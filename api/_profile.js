@@ -31,6 +31,23 @@ export async function readProfile(uid) {
   return (await ref(uid).get()).data() || {};
 }
 
+/* ── Birthday: asked once at sign-up (or in the app), stored as YYYY-MM-DD and never changeable by the person.
+      Under 13: no account (COPPA). 13–17: a teen account with stricter AI rules and no paid plans. ── */
+export function validBirthDate(s) {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s && d.getUTCFullYear() >= 1900 && d <= new Date();
+}
+export function ageOn(birthDate, now = new Date()) {
+  const [y, m, d] = birthDate.split('-').map(Number);
+  const mm = now.getUTCMonth() + 1;
+  return now.getUTCFullYear() - y - (mm < m || (mm === m && now.getUTCDate() < d) ? 1 : 0);
+}
+export const isTeen = (profile) => Boolean(profile?.birthDate) && ageOn(profile.birthDate) < 18;
+export async function saveBirthDate(uid, birthDate) {
+  await ref(uid).set({ birthDate, updatedAt: new Date() }, { merge: true });
+}
+
 export async function saveSettings(uid, patch) {
   if (!patch || typeof patch !== 'object') throw new HttpError(400, 'Nothing to save.');
   const clean = {};

@@ -37,8 +37,98 @@ async function api(path, body = {}) {
   });
   const data = await r.json().catch(() => ({}));
   if (data.banned) showBanned(data.banned);
-  if (!r.ok) throw new Error(data.error || 'Something went wrong. Please try again.');
+  if (data.needBirthday) askBirthday();
+  if (!r.ok) {
+    const err = new Error(data.error || 'Something went wrong. Please try again.');
+    err.underage = Boolean(data.underage);
+    throw err;
+  }
   return data;
+}
+
+/* ── Date of birth: every account needs one (api/settings 'birthday'), set once.
+      Under 13: the server deletes the account. 13–17: a teen account — stricter AI rules (server), no paid plans,
+      a reminder that it's an AI, and a break reminder every 3 hours (California SB 243). ── */
+const PENDING_BDAY = 'ea.pendingBirthday'; // from the sign-up form (script.js)
+let teenAccount = false;
+let bdayAsked = false;
+const ageOfDate = (v) => {
+  const [y, m, d] = v.split('-').map(Number);
+  const now = new Date();
+  return now.getFullYear() - y - (now.getMonth() + 1 < m || (now.getMonth() + 1 === m && now.getDate() < d) ? 1 : 0);
+};
+async function checkBirthday(birthDate) {
+  if (birthDate) { setTeen(ageOfDate(birthDate) < 18); return; }
+  let pending = null;
+  try { pending = localStorage.getItem(PENDING_BDAY); } catch {}
+  if (pending && await sendBirthday(pending).catch(() => false)) return;
+  askBirthday();
+}
+// true when saved (or handled); throws with the server's message otherwise
+async function sendBirthday(value) {
+  try {
+    const r = await api('/api/settings', { action: 'birthday', birthDate: value });
+    try { localStorage.removeItem(PENDING_BDAY); } catch {}
+    setTeen(r.age < 18);
+    return true;
+  } catch (err) {
+    try { localStorage.removeItem(PENDING_BDAY); } catch {}
+    if (err.underage) { showUnderage(err.message); return true; }
+    throw err;
+  }
+}
+function askBirthday() {
+  if (bdayAsked || !signedIn()) return;
+  bdayAsked = true;
+  const input = el('input', { class: 'field', type: 'date', required: true, max: new Date().toISOString().slice(0, 10), 'aria-label': 'Date of birth', autocomplete: 'bday' });
+  const msg = el('p', { class: 'bday-msg', role: 'alert' });
+  const go = el('button', { type: 'submit', class: 'btn' }, 'Continue');
+  const layer = el('div', { class: 'banned-layer bday-layer' },
+    el('form', { class: 'banned-card bday-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'bday-title', onsubmit: async (e) => {
+      e.preventDefault();
+      const v = input.value;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(v) || Number(v.slice(0, 4)) < 1900 || new Date(v) > new Date()) { msg.textContent = 'Enter your real date of birth.'; return; }
+      go.disabled = true;
+      try { await sendBirthday(v); layer.remove(); } catch (err) { msg.textContent = err.message; go.disabled = false; }
+    } },
+      el('img', { src: '/assets/potion-orb-pfp-sky-bottle.png', alt: '', width: '64', height: '64', class: 'bday-logo' }),
+      el('h2', { id: 'bday-title' }, 'When’s your birthday?'),
+      el('p', {}, 'Everyone adds this once. It keeps Experiment AI safe for teens, and it can’t be changed later.'),
+      input, msg,
+      el('div', { class: 'banned-actions' }, go),
+      el('small', { class: 'bday-note' }, 'Experiment AI is for people 13 and older.')));
+  document.body.append(layer);
+  input.focus();
+}
+function showUnderage(message) {
+  document.querySelectorAll('.bday-layer').forEach((x) => x.remove());
+  const layer = el('div', { class: 'banned-layer' },
+    el('div', { class: 'banned-card' },
+      el('h2', {}, 'Sorry'),
+      el('p', {}, message || 'Experiment AI is only for people 13 and older.'),
+      el('div', { class: 'banned-actions' }, button('OK', async () => {
+        try { await window.eaAuth?.signOut(); } catch {}
+        location.replace('/');
+      }, 'btn'))));
+  document.body.append(layer);
+}
+let breakTimer = null;
+function setTeen(on) {
+  teenAccount = on;
+  clearInterval(breakTimer);
+  if (!on) return;
+  let shown = false;
+  try { shown = sessionStorage.getItem('ea.aiNote') === '1'; sessionStorage.setItem('ea.aiNote', '1'); } catch {}
+  if (!shown) notice('Just so you know: Experiment AI is an AI, not a person.');
+  // a break reminder after every 3 hours with the app open
+  breakTimer = setInterval(() => {
+    const layer = el('div', { class: 'banned-layer' },
+      el('div', { class: 'banned-card' },
+        el('h2', {}, 'Time for a break?'),
+        el('p', {}, 'You’ve been here for 3 hours. Remember, Experiment AI is an AI, not a person. Stretch, grab some water, or come back later.'),
+        el('div', { class: 'banned-actions' }, button('Okay', () => layer.remove(), 'btn'))));
+    document.body.append(layer);
+  }, 3 * 60 * 60 * 1000);
 }
 async function loadUsage(force = false, card = false) {
   if (!force && usageData && Date.now() - usageAt < 30_000) return usageData;
@@ -207,6 +297,7 @@ async function afterSignIn() {
     profile.avatar = got.avatar || null;
     if (got.isAdmin && !isAdminUser) { isAdminUser = true; buildTabs(); }
     showAvatar();
+    checkBirthday(got.settings?.birthDate);
   } catch {}
   loadUsage().catch(() => {});
   // back from connecting a tool: /home?connected=notion or /home?connect_error=…
@@ -553,6 +644,10 @@ const calm = () => document.documentElement.dataset.motion === 'reduce' || match
 // "**bold** rest" → <strong>bold</strong> rest; a leading "-" marks a limited item (dash, not tick)
 const point = (t) => el('li', { class: t[0] === '-' ? 'limited' : null },
   t.replace(/^-/, '').split(/\*\*(.+?)\*\*/).map((s, i) => (i % 2 ? el('strong', {}, s) : s)));
+// the subscription terms, right where people choose a plan or pay: text + links to the Terms and Privacy Policy
+const legalNote = (text) => el('p', { class: 'plans-legal' }, text,
+  el('a', { href: '/tos', target: '_blank', rel: 'noopener' }, 'Terms of Service'), ' and ',
+  el('a', { href: '/policy', target: '_blank', rel: 'noopener' }, 'Privacy Policy'), '.');
 const yearlySub = (monthly) => `$${(monthly * 10 / 12).toFixed(2)} a month, billed yearly`;
 
 const plansLayer = $('plans');
@@ -711,6 +806,7 @@ function renderPlans() {
     el('p', { class: 'plans-foot' }, svgIcon(LOCK), plan === 'free'
       ? 'Payments are handled securely by Stripe. Cancel anytime in Settings › Billing.'
       : 'Switching charges or credits the difference right away. Cancel anytime in Settings › Billing.'),
+    legalNote('Prices in US dollars, plus any tax. Paid plans renew automatically every month, or every year if you pay yearly, at the price shown until you cancel. Cancel anytime in Settings › Billing and you keep your plan until the end of the period you paid for. Payments aren’t refundable except where the law requires. By subscribing you agree to our '),
   );
   plansBody.scrollTop = 0;
 }
@@ -758,6 +854,7 @@ async function openCheckout(secret, key, p) {
           el('div', {}, el('small', {}, 'You’re upgrading to'), el('h3', {}, pi.name))),
         el('p', { class: 'tier-price' }, el('b', {}, money(total)), el('span', {}, yearly ? '/ year' : '/ month')),
         el('p', { class: 'tier-sub' }, yearly ? `${yearlySub(pi.price)} · 2 months free` : 'Billed monthly'),
+        legalNote(`Renews automatically at ${money(total)} per ${yearly ? 'year' : 'month'}, plus any tax, until you cancel in Settings › Billing. Not refundable except where the law requires. By paying you agree to our `),
         el('p', { class: 'tier-note' }, typeof c.note === 'string' ? c.note : c.note[tierOf(p)]),
         el('ul', { class: 'co-list' }, c.points.map(point)),
         el('div', { class: 'co-total' },

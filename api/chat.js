@@ -16,7 +16,7 @@ import {
   EFFORTS, GATEWAY, MODELS, PLANS, addSpent, budgetsFor, costOf, effortFor, inputRate, kindOf, modelInfo,
   outputRate, planOf, requireAccess, reserve, unlimitedFor,
 } from './_ai.js';
-import { MEMORY_MAX, promptFromProfile, readProfile, saveMemories } from './_profile.js';
+import { MEMORY_MAX, isTeen, promptFromProfile, readProfile, saveMemories } from './_profile.js';
 import { TOOLS } from './_connectors.js';
 import {
   IMAGE_SEARCH_TOOL, SEARCH_COST, TOOL_DEFS, WEB_TOOL, connectedOf, imageSearch, imageSearchOn, labelFor, runTool, toolsPrompt, webSearch,
@@ -33,7 +33,7 @@ function localClock(clock) {
     return `The person’s local date and time is ${when} (${tz || 'UTC'}). Use it for words like “today” and “tonight”.`;
   } catch { return ''; }
 }
-import { checkVideoJob, imagePrice, isBlobUrl, makeImage, partsForFiles, startVideoJob, videoPrice } from './_media.js';
+import { checkVideoJob, imagePrice, makeImage, ownedBy, partsForFiles, startVideoJob, videoPrice } from './_media.js';
 
 const FILE_ROUNDS = 3; // files from the last 3 messages that have them go to the model (older ones by name only)
 const MEMORY_TOOL = {
@@ -65,13 +65,13 @@ const system = (...parts) => [
   ...parts,
 ].filter(Boolean).join('\n\n');
 
-function readMessages(body) {
+function readMessages(body, uid) {
   const list = Array.isArray(body?.messages) ? body.messages.slice(-MAX_MESSAGES) : [];
   const messages = list
     .filter((m) => (m?.role === 'user' || m?.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
     .map((m) => {
       const files = m.role === 'user' && Array.isArray(m.files)
-        ? m.files.filter((f) => isBlobUrl(f?.url)).slice(0, 20).map((f) => ({ url: f.url, name: String(f.name || 'file').slice(0, 200), type: String(f.type || '').slice(0, 100) }))
+        ? m.files.filter((f) => ownedBy(uid, f?.url)).slice(0, 20).map((f) => ({ url: f.url, name: String(f.name || 'file').slice(0, 200), type: String(f.type || '').slice(0, 100) })) // only this person's own files
         : [];
       return { role: m.role, content: m.content, ...(files.length && { files }) };
     });
@@ -125,6 +125,9 @@ export default handle(async (req, res) => {
   const [plan, profile, tools] = await Promise.all([
     planOf(user.uid), readProfile(user.uid), wantedTools.length ? connectedOf(user.uid, wantedTools) : [],
   ]);
+  // every account needs a date of birth before using the AI; teens (13–17) get stricter rules below
+  if (!profile.birthDate) throw new HttpError(403, 'Add your date of birth first.', { needBirthday: true });
+  const teen = isTeen(profile);
   const unlimited = await unlimitedFor(user);
   const rank = unlimited ? PLANS.length - 1 : PLANS.indexOf(plan);
   // Memory is for Light and up; it's used only when the chat has it switched on.
@@ -140,6 +143,7 @@ export default handle(async (req, res) => {
     picturesOn && 'When the person wants to see what something real looks like, use image_search: the pictures appear under your answer by themselves, so just describe or introduce them.',
     memoryOn && 'Memory is on: when the person shares something worth remembering long-term (a preference, a fact about themselves, an ongoing project) or asks you to remember something, call save_memory with one short sentence. Don’t mention saving unless they asked.',
     toolsPrompt(tools, tools.includes('google') ? driveFilesOf(req.body) : []),
+    teen && 'This person is a teenager (13–17). Keep everything age-appropriate: no sexual, romantic or flirtatious content or role-play; no graphic violence or gore; no help getting or using drugs, alcohol, vapes, weapons or gambling beyond safety information; no dangerous challenges, extreme dieting or body-shaming. You are an AI, not a person: never claim or pretend to be human, and say so plainly if asked or if they seem to think you are a friend or partner. If they mention self-harm, suicide, an eating disorder, abuse or being in danger, respond warmly, put their safety first, encourage them to talk to a trusted adult, and give crisis help: in the US call or text 988 (Suicide & Crisis Lifeline), elsewhere a local emergency number or helpline. Never give methods or details that could help someone hurt themselves.',
   );
   const toolDefs = [...tools.flatMap((t) => TOOL_DEFS[t]), ...(memoryOn ? [MEMORY_TOOL] : []), WEB_TOOL, ...(picturesOn ? [IMAGE_SEARCH_TOOL] : [])];
 
@@ -150,7 +154,7 @@ export default handle(async (req, res) => {
   const wanted = String(req.body?.effort || 'medium').toLowerCase();
   if (!EFFORTS.includes(wanted)) throw new HttpError(400, 'Pick Low, Medium or High effort.');
   if (kind === 'chat' && wanted === 'high' && rank < 1) throw new HttpError(403, 'High effort comes with Light and up.');
-  const messages = readMessages(req.body);
+  const messages = readMessages(req.body, user.uid);
   const model = await modelInfo(id);
 
   /* ── Image and video models: make one from the last message (pictures attached to it are used as a starting point) ── */

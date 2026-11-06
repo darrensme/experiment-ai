@@ -14,6 +14,14 @@ import { GATEWAY } from './_ai.js';
 const BLOB_HOST = /^https:\/\/[a-z0-9]+\.public\.blob\.vercel-storage\.com\//;
 export const isBlobUrl = (u) => typeof u === 'string' && u.length < 600 && BLOB_HOST.test(u);
 const folderOf = (uid) => createHash('sha256').update(`ea:${uid}`).digest('hex').slice(0, 24);
+// Is this Blob link one of this person's own files? (uploads, images or videos in their folder)
+export const ownedBy = (uid, url) => {
+  if (!isBlobUrl(url)) return false;
+  try {
+    const [kind, folder] = new URL(url).pathname.split('/').filter(Boolean);
+    return ['uploads', 'images', 'videos'].includes(kind) && folder === folderOf(uid);
+  } catch { return false; }
+};
 const safeName = (name) => String(name || 'file').normalize('NFKD').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').slice(-80) || 'file';
 
 // Save bytes to Blob under this person's folder; returns the public URL.

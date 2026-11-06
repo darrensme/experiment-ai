@@ -18,7 +18,7 @@ import { HttpError, auth, db, handle, requireUser } from './_shared.js';
 import {
   PLANS, budgetsFor, hasAccess, isAdmin, isUnlimited, planOf, readSpent, requireAdmin, requireVerified,
 } from './_ai.js';
-import { readProfile, saveAvatar, saveMemories, saveSettings } from './_profile.js';
+import { ageOn, readProfile, saveAvatar, saveBirthDate, saveMemories, saveSettings, validBirthDate } from './_profile.js';
 import { chatsOf } from './chats.js';
 import { deleteAccount } from './_account.js';
 
@@ -134,6 +134,21 @@ export default handle(async (req, res) => {
   }
   if (action === 'save') {
     return res.status(200).json({ settings: await saveSettings(user.uid, req.body.settings) });
+  }
+  // birthday: set once. Under 13 → the account is deleted (we can't keep a child's data). Admins are never deleted here.
+  if (action === 'birthday') {
+    const profile = await readProfile(user.uid);
+    if (profile.birthDate) return res.status(200).json({ birthDate: profile.birthDate, age: ageOn(profile.birthDate) });
+    const birthDate = String(req.body?.birthDate || '');
+    if (!validBirthDate(birthDate)) throw new HttpError(400, 'Enter your real date of birth.');
+    const age = ageOn(birthDate);
+    if (age < 13) {
+      if (!isAdmin(user)) await deleteAccount(user.uid);
+      console.log('under-13 birthday', user.uid, isAdmin(user) ? '(admin, kept)' : 'account deleted');
+      return res.status(403).json({ underage: true, error: 'Experiment AI is only for people 13 and older, so this account has been deleted.' });
+    }
+    await saveBirthDate(user.uid, birthDate);
+    return res.status(200).json({ birthDate, age });
   }
   if (action === 'memories') {
     return res.status(200).json({ memories: await saveMemories(user.uid, req.body.memories) });

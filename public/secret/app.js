@@ -767,6 +767,7 @@ async function streamChat(chat, model, on, signal) {
   if (!r.ok) {
     const d = await r.json().catch(() => ({}));
     if (d.banned && typeof showBanned === 'function') showBanned(d.banned);
+    if (d.needBirthday && typeof askBirthday === 'function') askBirthday();
     throw new Error(d.error || 'Something went wrong. Please try again.');
   }
   const reader = r.body.getReader();
@@ -1357,19 +1358,33 @@ const UPLOAD_MAX = 4 * 1024 * 1024;
 const READABLE = (f) => /^image\/(png|jpe?g|webp|gif|heic|heif)$/.test(f.type) || f.type === 'application/pdf'
   || /^text\/|json|xml|javascript|csv|markdown|yaml/.test(f.type)
   || /\.(txt|md|markdown|csv|tsv|json|jsonl|xml|html?|css|js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|kt|swift|c|h|cpp|hpp|cs|php|sh|ya?ml|toml|ini|sql|log|svg)$/i.test(f.name);
-// photos: at most 2048 px on the long side, as JPEG (keeps uploads small and the AI's view sharp enough)
+// photos: EVERY photo is redrawn before upload, which strips its hidden metadata (EXIF: GPS location, camera,
+// time taken). At most 2048 px on the long side. PNG/WebP stay PNG (keeps transparency) unless that's too big;
+// JPEG/HEIC become JPEG. GIFs are left alone (they'd lose their animation).
 async function shrinkImage(file) {
-  if (!/^image\/(png|jpe?g|webp|heic|heif)$/.test(file.type) || (file.size < 1.5 * 1048576 && !/heic|heif/.test(file.type))) return file;
+  if (!/^image\/(png|jpe?g|webp|heic|heif)$/.test(file.type)) return file;
   try {
-    const bmp = await createImageBitmap(file);
+    const bmp = await createImageBitmap(file); // applies the photo's rotation, so it still looks right
     const scale = Math.min(1, 2048 / Math.max(bmp.width, bmp.height));
     const c = document.createElement('canvas');
     c.width = Math.round(bmp.width * scale);
     c.height = Math.round(bmp.height * scale);
-    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
-    const blob = await new Promise((ok) => c.toBlob(ok, 'image/jpeg', 0.86));
-    return blob ? new File([blob], file.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' }) : file;
-  } catch { return file; }
+    const g = c.getContext('2d');
+    const encode = (type, q) => new Promise((ok) => c.toBlob(ok, type, q));
+    const name = (ext) => file.name.replace(/\.\w+$/, '') + ext;
+    if (/png|webp/.test(file.type)) {
+      g.drawImage(bmp, 0, 0, c.width, c.height);
+      const png = await encode('image/png');
+      if (png && png.size <= 3 * 1048576) return new File([png], name('.png'), { type: 'image/png' });
+    }
+    g.fillStyle = '#fff'; // JPEG has no transparency: put it on white, not black
+    g.fillRect(0, 0, c.width, c.height);
+    g.drawImage(bmp, 0, 0, c.width, c.height);
+    const jpg = await encode('image/jpeg', 0.88);
+    if (jpg) return new File([jpg], name('.jpg'), { type: 'image/jpeg' });
+  } catch {}
+  // couldn't redraw it (e.g. HEIC outside Safari): don't upload the original with its location data
+  throw new Error(`${file.name} couldn’t be prepared safely, so it wasn’t uploaded. Try a JPEG or PNG.`);
 }
 async function uploadOne(file) {
   const f = await shrinkImage(file);

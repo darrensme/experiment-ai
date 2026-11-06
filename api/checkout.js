@@ -4,6 +4,7 @@
 // now; nothing changes unless that payment goes through) and returns { changed: true, plan }.
 import { HttpError, db, handle, requireUser } from './_shared.js';
 import { requireAccess } from './_ai.js';
+import { isTeen, readProfile } from './_profile.js';
 import { BILLINGS, PAID, priceFor, publishableKey, siteOrigin, stripe, syncSubscription } from './_stripe.js';
 
 const LIVE = ['active', 'trialing', 'past_due'];
@@ -11,6 +12,10 @@ const LIVE = ['active', 'trialing', 'past_due'];
 export default handle(async (req, res) => {
   const user = await requireUser(req);
   await requireAccess(user);
+  // teen accounts can't buy plans (a purchase by a minor can be undone); no birthday yet → ask for it first
+  const profile = await readProfile(user.uid);
+  if (!profile.birthDate) throw new HttpError(403, 'Add your date of birth first.', { needBirthday: true });
+  if (isTeen(profile)) throw new HttpError(403, 'Paid plans are for people 18 and older. Teen accounts stay on Free.');
   const plan = String(req.body?.plan || '');
   const billing = String(req.body?.billing || 'monthly');
   if (!(plan in PAID)) throw new HttpError(400, 'Pick a plan.');

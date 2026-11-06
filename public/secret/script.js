@@ -354,7 +354,34 @@ import {
     $$('.step button', modal).forEach((b) => { b.disabled = locked; });
   };
 
+  /* Date of birth: needed to sign up. Under 13 can't make an account (COPPA); 13–17 get a teen account.
+     It's kept in this browser until the app saves it to the account (api/settings 'birthday'), which happens
+     right after sign-in. Google sign-ins and older accounts without one are asked in the app instead. */
+  const BDAY_KEY = 'ea.pendingBirthday';
+  const bdayInput = $('input[name="birthday"]', modal);
+  if (bdayInput) bdayInput.max = new Date().toISOString().slice(0, 10);
+  const ageFrom = (v) => {
+    const [y, m, d] = v.split('-').map(Number);
+    const now = new Date();
+    return now.getFullYear() - y - (now.getMonth() + 1 < m || (now.getMonth() + 1 === m && now.getDate() < d) ? 1 : 0);
+  };
+  function birthdayOk() {
+    const v = bdayInput?.value || '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v) || Number(v.slice(0, 4)) < 1900 || new Date(v) > new Date()) {
+      say('Enter your date of birth first.', true);
+      bdayInput?.focus();
+      return false;
+    }
+    if (ageFrom(v) < 13) {
+      say('Sorry, Experiment AI is only for people 13 and older.', true);
+      return false;
+    }
+    try { localStorage.setItem(BDAY_KEY, v); } catch {}
+    return true;
+  }
+
   $('[data-provider="google"]', modal).addEventListener('click', async () => {
+    if (modal.dataset.mode !== 'login' && !birthdayOk()) return;
     if (modal.dataset.mode !== 'login' && !agreed()) return askToAgree();
     lock(true);
     say('Opening Google…');
@@ -380,6 +407,7 @@ import {
     if (!/^\S+@\S+\.\S+$/.test(email)) return say('Enter a valid email.', true);
     if (password.length < 8) return say('Password needs at least 8 characters.', true);
     const login = modal.dataset.mode === 'login';
+    if (!login && !birthdayOk()) return;
     if (!login && !agreed()) return askToAgree();
 
     lock(true);
@@ -644,7 +672,7 @@ import {
     const note = document.createElement('div');
     note.className = 'cookie-note';
     note.setAttribute('role', 'status');
-    note.innerHTML = '<span class="cookie-emoji" aria-hidden="true">🍪</span><p><strong>No cookies here.</strong> Experiment AI doesn’t use cookies, so there’s nothing to accept.</p><button type="button" class="btn btn-dark btn-sm">Nice</button>';
+    note.innerHTML = '<span class="cookie-emoji" aria-hidden="true">🍪</span><p><strong>No tracking here.</strong> No ads, no analytics, no tracking cookies. Stripe uses one essential cookie at checkout to stop fraud.</p><button type="button" class="btn btn-dark btn-sm">Nice</button>';
     document.body.appendChild(note);
     requestAnimationFrame(() => setTimeout(() => note.classList.add('show'), 900));
     $('button', note).addEventListener('click', () => {

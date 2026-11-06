@@ -560,7 +560,7 @@ import {
     const note = document.createElement('div');
     note.className = 'cookie-note';
     note.setAttribute('role', 'status');
-    note.innerHTML = '<span class="cookie-emoji" aria-hidden="true">🍪</span><p><strong>No cookies here.</strong> Experiment AI doesn’t use cookies, so there’s nothing to accept.</p><button type="button" class="btn btn-dark btn-sm">Nice</button>';
+    note.innerHTML = '<span class="cookie-emoji" aria-hidden="true">🍪</span><p><strong>No tracking here.</strong> No ads, no analytics, no tracking cookies. Stripe uses one essential cookie at checkout to stop fraud.</p><button type="button" class="btn btn-dark btn-sm">Nice</button>';
     document.body.appendChild(note);
     requestAnimationFrame(() => setTimeout(() => note.classList.add('show'), 900));
     $('button', note).addEventListener('click', () => {
