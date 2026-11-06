@@ -332,12 +332,13 @@ $('new-chat').addEventListener('click', () => goHome());
 // the incognito button under New chat, and the note above an incognito chat
 ICONS.incog = '<path d="M3.5 11h17"/><path d="M6 11l1.6-5.2a1.5 1.5 0 0 1 2-1L12 5.6l2.4-.8a1.5 1.5 0 0 1 2 1L18 11"/><circle cx="8" cy="16" r="2.6"/><circle cx="16" cy="16" r="2.6"/><path d="M10.6 16h2.8"/>';
 const incogIcon = () => icon('incog');
-const incogBar = el('div', { class: 'incog-bar', role: 'status', hidden: true },
-  el('span', { class: 'incog-badge' }, incogIcon(), 'Incognito'), 'This chat isn’t saved and memory is off. It’s gone when you leave.');
-messagesEl.before(incogBar);
+// a quiet note under the message bar, between the model and Usage
+const incogBar = el('div', { class: 'incog-bar', role: 'status', hidden: true, title: 'This chat isn’t saved and memory is off. It’s gone when you leave.' },
+  incogIcon(), el('strong', {}, 'Incognito'), el('span', { class: 'incog-more' }, '· not saved, memory off'));
+composer.append(incogBar);
 // a small round button in the top-right corner
 app.append(el('button', {
-  type: 'button', class: 'icon-btn glass incog-corner', id: 'incog-btn', 'aria-pressed': 'false', 'aria-label': 'Incognito chat',
+  type: 'button', class: 'incog-corner', id: 'incog-btn', 'aria-pressed': 'false', 'aria-label': 'Incognito chat',
   title: 'Incognito chat: not saved, memory off', onclick: () => goHome({ incognito: !(incog || draft.incognito) }),
 }, incogIcon()));
 
