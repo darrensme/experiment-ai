@@ -302,6 +302,13 @@ async function afterSignIn() {
   loadUsage().catch(() => {});
   // back from connecting a tool: /home?connected=notion or /home?connect_error=…
   const q = new URLSearchParams(location.search);
+  // short links like /billing → /home?open=billing open that Settings tab
+  let openTab = q.get('open');
+  try { openTab ||= sessionStorage.getItem('ea.open'); sessionStorage.removeItem('ea.open'); } catch {}
+  if (openTab && TABS.some(([k]) => k === openTab)) {
+    history.replaceState(null, '', '/home');
+    openSettings(openTab);
+  }
   if (q.has('connected') || q.has('connect_error')) {
     history.replaceState(null, '', '/home');
     const tool = CONNECTORS.find((c) => c.id === q.get('connected'));

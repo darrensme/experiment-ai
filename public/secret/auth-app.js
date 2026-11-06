@@ -14,7 +14,13 @@ document.querySelectorAll('[data-signout]').forEach((b) => b.addEventListener('c
 
 if (LIVE) {
   onAuthStateChanged(auth, (user) => {
-    if (!user || !isVerified(user)) { location.replace('/?login'); return; } // not signed in, or email not confirmed
+    if (!user || !isVerified(user)) { // not signed in, or email not confirmed
+      // remember a short link's tab (/billing → ?open=billing) so it still opens after logging in
+      const open = new URLSearchParams(location.search).get('open');
+      if (open) try { sessionStorage.setItem('ea.open', open); } catch {}
+      location.replace('/?login');
+      return;
+    }
     window.eaAuth = {
       uid: user.uid,
       token: () => auth.currentUser.getIdToken(),
