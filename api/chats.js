@@ -60,6 +60,12 @@ function cleanChat(c) {
       if (found.length) out.found = found;
       if (m?.job && /^[A-Za-z0-9]{10,40}$/.test(m.job.id || '')) out.job = { id: m.job.id, status: ['pending', 'error'].includes(m.job.status) ? m.job.status : 'pending', ...(m.job.error && { error: str(m.job.error, 300) }) };
       if (m?.error) out.error = str(m.error, 300);
+      if (m?.rating === 'up' || m?.rating === 'down') out.rating = m.rating; // thumbs
+      if (m?.stopped === true) out.stopped = true; // they pressed Stop
+      // side by side: both answers until one is kept
+      const pair = list(m?.pair, 2).filter((p) => typeof p?.model === 'string')
+        .map((p) => ({ model: str(p.model, 80), text: str(p.text, CONTENT_MAX), ...(p.error && { error: str(p.error, 300) }) }));
+      if (pair.length === 2) out.pair = pair;
     }
     return out;
   });
@@ -141,6 +147,17 @@ export default handle(async (req, res) => {
     }
     await ref.set(doc);
     return res.status(200).json({ saved: req.body.chat.id });
+  }
+  // thumbs up/down on a reply: kept for admins (Settings › Admin › Reply feedback). rating null = taken back.
+  if (action === 'rate') {
+    const b = req.body || {};
+    if (!validId(b.chatId) || !Number.isFinite(b.at)) throw new HttpError(400, 'Unknown reply.');
+    const ref = db().collection('feedback').doc(`${user.uid}_${b.chatId}_${Math.trunc(b.at)}`.slice(0, 200));
+    if (b.rating !== 'up' && b.rating !== 'down') { await ref.delete(); return res.status(200).json({ rated: null }); }
+    await ref.set({
+      uid: user.uid, email: user.email || null, rating: b.rating, model: str(b.model, 80), reply: str(b.reply, 400), ratedAt: Date.now(),
+    });
+    return res.status(200).json({ rated: b.rating });
   }
   if (action === 'delete') {
     if (!validId(req.body.id)) throw new HttpError(400, 'Unknown chat.');

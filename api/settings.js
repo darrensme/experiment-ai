@@ -52,6 +52,17 @@ async function describe(u, { detail = false } = {}) {
 async function adminAction(user, action, body) {
   requireAdmin(user);
   const store = db();
+  // thumbs up/down on replies (api/chats.js 'rate'): the newest 300, with totals per model
+  if (action === 'admin-feedback') {
+    const snap = await store.collection('feedback').orderBy('ratedAt', 'desc').limit(300).get();
+    const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const models = {};
+    for (const f of items) {
+      models[f.model] ||= { up: 0, down: 0 };
+      models[f.model][f.rating === 'up' ? 'up' : 'down']++;
+    }
+    return { items, models };
+  }
   if (action === 'admin-users') {
     const q = String(body.query || '').trim();
     let users = [];

@@ -1040,7 +1040,8 @@ const userBadges = (u) => [
 const avatarOf = (u) => el('img', { class: 'avatar', src: u.photo || '/assets/potion-orb-icon-pfp.png', alt: '', width: '34', height: '34', referrerpolicy: 'no-referrer' });
 
 async function renderAdmin(more = false) {
-  const top = head('Admin', 'Find an account to ban it, change its plan, let it into the app or reset its usage.');
+  const top = [head('Admin', 'Find an account to ban it, change its plan, let it into the app or reset its usage.'),
+    el('div', { class: 'admin-tools' }, button('Reply feedback', () => renderAdminFeedback(), 'btn btn-ghost btn-sm'))];
   const q = el('input', { class: 'field', type: 'search', placeholder: 'Email, name or user ID', value: adminState.query });
   const list = el('div', { class: 'set-group admin-list' }, loading());
   fill(settingsBody, top,
@@ -1066,6 +1067,44 @@ async function renderAdmin(more = false) {
           icon('chevron')))
       : el('p', { class: 'set-empty-row' }, adminState.query ? 'No account matches that.' : adminState.filter === 'banned' ? 'Nobody is banned.' : 'No accounts yet.'),
     adminState.next && !adminState.query && el('div', { class: 'admin-more' }, button('Load more', () => renderAdmin(true))));
+}
+
+// Thumbs up/down people gave replies: totals per model (worst first), then the newest ratings
+let feedbackFilter = 'all';
+async function renderAdminFeedback(data = null) {
+  const back = el('button', { type: 'button', class: 'back', onclick: () => renderAdmin() }, icon('back'), 'All accounts');
+  const top = [back, head('Reply feedback', 'Thumbs up and down on replies. Incognito chats never send any.')];
+  if (!data) {
+    fill(settingsBody, top, loading());
+    try { data = await api('/api/settings', { action: 'admin-feedback' }); } catch (err) { fill(settingsBody, top, failed(err, () => renderAdminFeedback())); return; }
+    if (settingsTab !== 'admin') return;
+  }
+  const name = (id) => modelById(id)?.name || id || 'Unknown model';
+  const rows = Object.entries(data.models || {})
+    .map(([id, c]) => ({ id, ...c, total: c.up + c.down, good: c.up / Math.max(1, c.up + c.down) }))
+    .sort((a, b) => a.good - b.good || b.total - a.total);
+  const items = (data.items || []).filter((f) => feedbackFilter === 'all' || f.rating === 'down');
+  const thumb = (r) => el('span', { class: `fb-thumb ${r}`, title: r === 'up' ? 'Good reply' : 'Bad reply' }, icon(r === 'up' ? 'up' : 'down'));
+  fill(settingsBody, top,
+    el('h4', { class: 'set-label' }, 'By model'),
+    rows.length
+      ? el('div', { class: 'set-group' }, rows.map((r) => el('div', { class: 'set-row fb-model' },
+          el('div', { class: 'grow' }, el('strong', {}, name(r.id)), el('small', {}, `${r.total} rating${r.total === 1 ? '' : 's'}`)),
+          el('span', { class: 'fb-count up' }, icon('up'), String(r.up)),
+          el('span', { class: 'fb-count down' }, icon('down'), String(r.down)),
+          el('span', { class: `fb-pct${r.good < 0.6 ? ' bad' : ''}` }, `${Math.round(r.good * 100)}% good`))))
+      : el('div', { class: 'set-group' }, el('p', { class: 'set-empty-row' }, 'No ratings yet.')),
+    el('div', { class: 'fb-head' },
+      el('h4', { class: 'set-label' }, 'Newest'),
+      seg('Show', [['all', 'All'], ['down', 'Thumbs down']], feedbackFilter, (v) => { feedbackFilter = v; renderAdminFeedback(data); })),
+    items.length
+      ? el('div', { class: 'set-group' }, items.slice(0, 100).map((f) => el('div', { class: 'set-row fb-item' },
+          thumb(f.rating),
+          el('div', { class: 'grow' },
+            el('strong', {}, name(f.model)),
+            el('p', { class: 'fb-reply' }, f.reply || '(no text)'),
+            el('small', {}, `${f.email || f.uid} · ${fmtDay(f.ratedAt)}`)))))
+      : el('div', { class: 'set-group' }, el('p', { class: 'set-empty-row' }, feedbackFilter === 'down' ? 'No thumbs down. Nice.' : 'No ratings yet.')));
 }
 
 async function renderAdminUser(uid, given = null) {

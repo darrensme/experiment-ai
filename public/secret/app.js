@@ -142,7 +142,9 @@ let attachments = [];                          // [{ kind: 'file' | 'folder', na
 let projView = { mode: 'list', id: null };
 let assignNewProject = false;                  // "New project…" from the + menu puts this chat in it
 let fileTarget = null;                         // null = the message bar, or a project id
-const current = () => chats.find((c) => c.id === currentId) || null;
+// Incognito: a chat kept only here, in memory. Never in `chats`, so it's never saved, synced or listed; memory is off.
+let incog = null;
+const current = () => (incog && incog.id === currentId ? incog : chats.find((c) => c.id === currentId)) || null;
 const settings = () => current() || draft;
 function persistSettings() {
   if (current()) saveChats();
@@ -285,9 +287,16 @@ function setChatting(on) {
   glideTimer = setTimeout(() => composer.classList.remove('gliding'), 750);
 }
 
-function goHome({ projectId = null } = {}) {
+function setIncognito(on) {
+  document.body.classList.toggle('incognito', on);
+  incogBar.hidden = !on;
+  $('incog-btn')?.setAttribute('aria-pressed', String(on));
+}
+function goHome({ projectId = null, incognito = false } = {}) {
   currentId = null;
-  draft = { projectId, memory: true, tools: [] };
+  incog = null; // leaving an incognito chat throws it away
+  setIncognito(incognito);
+  draft = { projectId: incognito ? null : projectId, memory: !incognito, tools: [], incognito };
   attachments = [];
   messagesEl.replaceChildren();
   setChatting(false);
@@ -303,6 +312,8 @@ function openChat(id) {
   const chat = chats.find((c) => c.id === id);
   if (!chat) return;
   currentId = id;
+  incog = null;
+  setIncognito(false);
   attachments = [];
   closeMenu();
   closeModelMenu();
@@ -318,6 +329,14 @@ function openChat(id) {
 }
 
 $('new-chat').addEventListener('click', () => goHome());
+// the incognito button under New chat, and the note above an incognito chat
+ICONS.incog = '<path d="M3.5 11h17"/><path d="M6 11l1.6-5.2a1.5 1.5 0 0 1 2-1L12 5.6l2.4-.8a1.5 1.5 0 0 1 2 1L18 11"/><circle cx="8" cy="16" r="2.6"/><circle cx="16" cy="16" r="2.6"/><path d="M10.6 16h2.8"/>';
+const incogIcon = () => icon('incog');
+const incogBar = el('div', { class: 'incog-bar', role: 'status', hidden: true },
+  el('span', { class: 'incog-badge' }, incogIcon(), 'Incognito'), 'This chat isn’t saved and memory is off. It’s gone when you leave.');
+messagesEl.before(incogBar);
+$('new-chat').after(el('button', { type: 'button', class: 'side-btn', id: 'incog-btn', 'aria-pressed': 'false', title: 'A chat that isn’t saved and doesn’t use memory', onclick: () => goHome({ incognito: !(incog || draft.incognito) }) },
+  incogIcon(), 'Incognito chat'));
 
 // Images and videos the AI made (stored in Blob); "?download=1" makes Blob send it as a download
 const downloadUrl = (u) => `${u}${u.includes('?') ? '&' : '?'}download=1`;
@@ -349,7 +368,18 @@ Object.assign(ICONS, {
   edit: '<path d="M14.5 5.5l4 4L9 19H5v-4z"/><path d="M12.5 7.5l4 4"/>',
   pair: '<rect x="3.5" y="5" width="7" height="14" rx="2"/><rect x="13.5" y="5" width="7" height="14" rx="2"/>',
 });
-const chatOf = (m) => chats.find((c) => c.messages.includes(m));
+const chatOf = (m) => (incog?.messages.includes(m) ? incog : chats.find((c) => c.messages.includes(m)));
+// thumbs go to the admins' Reply feedback list (never from incognito chats)
+async function sendRating(chat, m) {
+  if (!window.eaAuth || !chat || chat.incognito) return;
+  try {
+    await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await window.eaAuth.token()}` },
+      body: JSON.stringify({ action: 'rate', chatId: chat.id, at: m.at, model: m.model, rating: m.rating || null, reply: String(m.text || '').slice(0, 400) }),
+    });
+  } catch {}
+}
 const actBtn = (name, label, onclick, extra = {}) => el('button', { type: 'button', class: 'act', title: label, 'aria-label': label, onclick, ...extra }, icon(name));
 function copyAct(getText) {
   const b = actBtn('copy', 'Copy', async () => {
@@ -383,7 +413,7 @@ function rateAct(m, kind) {
   const b = actBtn(kind, kind === 'up' ? 'Good reply' : 'Bad reply', () => {
     const chat = chatOf(m);
     m.rating = m.rating === kind ? undefined : kind;
-    if (chat) saveChats();
+    if (chat) { saveChats(); sendRating(chat, m); }
     b.parentElement.querySelectorAll('[data-rate]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.rate === m.rating)));
   }, { 'data-rate': kind, 'aria-pressed': String(m.rating === kind) });
   return b;
@@ -467,6 +497,7 @@ function renderMessage(m) {
       m.job && jobBox(m.job),
       m.pair ? pairBox(m) : m.text && richBody(m.text),
       m.found?.length && foundBox(m.found),
+      m.stopped && el('div', { class: 'msg-stopped' }, 'Stopped'),
       (m.text || m.pair) && el('div', { class: 'msg-acts' },
         !m.pair && copyAct(() => m.text),
         !m.pair && speakAct(m),
@@ -499,7 +530,11 @@ function autosize() {
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 200) + 'px';
   app.style.setProperty('--ch', composer.offsetHeight + 'px');
-  send.disabled = replying || (typeof uploadsPending === 'function' && uploadsPending()) || (!input.value.trim() && !attachments.length);
+  // while an answer streams, Send becomes Stop
+  send.disabled = !replying && ((typeof uploadsPending === 'function' && uploadsPending()) || (!input.value.trim() && !attachments.length));
+  send.classList.toggle('stop', replying);
+  send.title = replying ? 'Stop' : 'Send';
+  send.setAttribute('aria-label', send.title);
 }
 input.addEventListener('input', autosize);
 
@@ -614,7 +649,7 @@ function renderChips() {
   if (project) {
     items.push(chip('folder', project.name, `Take this chat out of ${project.name}`, () => { s.projectId = null; persistSettings(); }, 'chip-project'));
   }
-  if (!s.memory) {
+  if (!s.memory && !s.incognito) {
     items.push(chip(null, 'Memory off', 'Save this chat to memory again', () => { s.memory = true; persistSettings(); }, 'chip-memory'));
   }
   // connectors switched on for this chat (only ones still connected, once we know)
@@ -656,7 +691,8 @@ composer.addEventListener('submit', (e) => {
   let chat = current();
   if (!chat) {
     chat = { id: uid(), title: titleFor(text, attachments), projectId: draft.projectId, memory: draft.memory, tools: [...(draft.tools || [])], createdAt: now, updatedAt: now, messages: [] };
-    chats.push(chat);
+    if (draft.incognito) { chat.incognito = true; chat.memory = false; chat.projectId = null; incog = chat; } // kept out of `chats`: never saved
+    else chats.push(chat);
     currentId = chat.id;
   }
   const files = attachments.flatMap((a) => a.files);
@@ -688,6 +724,11 @@ composer.addEventListener('submit', (e) => {
 /* ── AI replies: api/chat.js streams JSON lines ({ type: 'text' | 'error' | 'done' }). It uses your Settings
       (name, style, language, about you, how to respond) and counts toward Settings → Usage. ── */
 let replying = false;
+let aborter = null; // stops the answer that's streaming (the server then stops the model too)
+const stopReply = () => aborter?.abort();
+const isAbort = (err) => err?.name === 'AbortError';
+send.append(el('span', { class: 'stop-ico', 'aria-hidden': 'true' }));
+send.addEventListener('click', (e) => { if (replying) { e.preventDefault(); stopReply(); } });
 const nearBottom = () => thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120;
 // uploaded files in a message (single files and the readable part of folders), for the AI to read
 const uploadsOf = (m) => (m.attachments || []).flatMap((a) => (a.url ? [{ url: a.url, name: a.name, type: a.type }] : a.uploads || []));
@@ -708,13 +749,14 @@ function toApi(chat) {
 // every Google Drive file picked in this chat, so the AI can read them
 const driveFilesIn = (chat) => [...new Map(chat.messages.flatMap((m) => (m.attachments || []).filter((a) => a.kind === 'drive' && a.id)).map((a) => [a.id, { id: a.id, name: a.name }])).values()];
 // One streamed answer from api/chat.js for `model`; calls on(ev) for each JSON line. Throws on a failed request.
-async function streamChat(chat, model, on) {
+async function streamChat(chat, model, on, signal) {
   if (!window.eaAuth) throw new Error('Sign in to get answers.');
   const r = await fetch('/api/chat', {
     method: 'POST',
+    signal,
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await window.eaAuth.token()}` },
     body: JSON.stringify({
-      model, effort: chat.effort, memory: chat.memory, tools: chat.tools || [], driveFiles: driveFilesIn(chat), messages: toApi(chat),
+      model, effort: chat.effort, memory: chat.incognito ? false : chat.memory, tools: chat.tools || [], driveFiles: driveFilesIn(chat), messages: toApi(chat),
       clock: { tz: Intl.DateTimeFormat().resolvedOptions().timeZone }, // so "tonight" means your tonight
     }),
   });
@@ -781,6 +823,8 @@ async function reply(chat) {
   const foundSlot = el('div');
   const used = modelById(chat.model);
   if (used && used.kind !== 'chat') li.append(el('span', { class: 'making' }, used.kind === 'video' ? 'Starting your video…' : 'Making your image…'));
+  let stopped = false;
+  aborter = new AbortController();
   replying = true;
   autosize();
   try {
@@ -805,16 +849,19 @@ async function reply(chat) {
       else if (ev.type === 'video-job' && ev.jobId) job = { id: ev.jobId, status: 'pending' };
       else if (ev.type === 'error') error = ev.error;
       else if (ev.type === 'done' && typeof refreshUsageSoon === 'function') refreshUsageSoon(); // Usage shows the new numbers
-    });
+    }, aborter.signal);
     if (!text && !media.length && !job && !error) error = 'No answer came back. Please try again.';
   } catch (err) {
-    error = err.message || 'Something went wrong. Please try again.';
+    if (isAbort(err)) stopped = true;
+    else error = err.message || 'Something went wrong. Please try again.';
   }
+  aborter = null;
   replying = false;
   autosize();
   stepsDone();
+  if (stopped && typeof refreshUsageSoon === 'function') refreshUsageSoon();
   if (text || media.length || job) {
-    const m = { role: 'assistant', text, at: Date.now(), model: chat.model, ...(steps.length && { steps }), ...(media.length && { media }), ...(job && { job }), ...(found.length && { found }) };
+    const m = { role: 'assistant', text, at: Date.now(), model: chat.model, ...(stopped && { stopped }), ...(steps.length && { steps }), ...(media.length && { media }), ...(job && { job }), ...(found.length && { found }) };
     chat.messages.push(m);
     chat.updatedAt = Date.now();
     saveChats();
@@ -825,6 +872,12 @@ async function reply(chat) {
     if (error) shown.append(el('div', { class: 'msg-error' }, error));
     if (stick || media.length || job) requestAnimationFrame(() => { thread.scrollTop = thread.scrollHeight; });
     if (job) pollVideos();
+    return;
+  }
+  if (stopped) { // stopped before any words came back
+    if (!steps.length) fill(li);
+    li.classList.remove('thinking');
+    li.append(el('div', { class: 'msg-stopped' }, 'You stopped this answer.'));
     return;
   }
   if (error) {
@@ -845,6 +898,8 @@ async function replyPair(chat, models) {
   const li = el('li', { class: 'msg msg-ai msg-pair', 'aria-label': 'Two AIs are answering' }, el('div', { class: 'pair' }, cols.map((c) => c.node)));
   messagesEl.append(li);
   thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' });
+  aborter = new AbortController();
+  const signal = aborter.signal;
   replying = true;
   autosize();
   await Promise.all(cols.map(async (c) => {
@@ -853,21 +908,24 @@ async function replyPair(chat, models) {
         if (ev.type === 'text') { c.text += ev.text; c.paint(c.text); }
         else if (ev.type === 'error') c.error = ev.error;
         else if (ev.type === 'done' && typeof refreshUsageSoon === 'function') refreshUsageSoon();
-      });
+      }, signal);
       if (!c.text && !c.error) c.error = 'No answer came back.';
     } catch (err) {
-      c.error = err.message || 'Something went wrong. Please try again.';
+      c.error = isAbort(err) ? 'Stopped.' : err.message || 'Something went wrong. Please try again.';
     }
   }));
+  const stopped = signal.aborted;
+  aborter = null;
   replying = false;
   autosize();
+  if (stopped && typeof refreshUsageSoon === 'function') refreshUsageSoon();
   const ok = cols.find((c) => c.text);
   if (!ok) {
     li.classList.remove('msg-pair');
-    fill(li, el('div', { class: 'msg-error' }, cols[0].error));
+    fill(li, el('div', { class: stopped ? 'msg-stopped' : 'msg-error' }, stopped ? 'You stopped this answer.' : cols[0].error));
     return;
   }
-  const m = { role: 'assistant', text: ok.text, model: ok.id, at: Date.now(), pair: cols.map((c) => ({ model: c.id, text: c.text, ...(!c.text && { error: c.error }) })) };
+  const m = { role: 'assistant', text: ok.text, model: ok.id, at: Date.now(), ...(stopped && { stopped }), pair: cols.map((c) => ({ model: c.id, text: c.text, ...(!c.text && { error: c.error }) })) };
   chat.messages.push(m);
   chat.updatedAt = Date.now();
   saveChats();
