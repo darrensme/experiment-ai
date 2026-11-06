@@ -2,10 +2,30 @@
 // (dollars). The app shows these as percentages and uses the plan to unlock models and features.
 // A paid plan is re-checked with Stripe every few hours, in case a webhook was missed.
 import { db, handle, requireUser } from './_shared.js';
-import { budgetsFor, planOf, readSpent, requireVerified, unlimitedFor } from './_ai.js';
+import { budgetsFor, isOwner, planOf, readSpent, requireVerified, unlimitedFor } from './_ai.js';
 import { secretKey, stripe, syncSubscription } from './_stripe.js';
 
 const RECHECK_MS = 6 * 3600_000;
+
+// The owner: always Max 10× (a plan override), and a Stripe customer so Manage billing / Change card work without
+// buying a plan. Test and live mode have separate customers, so a new one is made when the mode changes.
+async function ensureOwner(user) {
+  const ref = db().collection('plans').doc(user.uid);
+  const d = (await ref.get()).data() || {};
+  const patch = {};
+  if (d.override !== 'max-10x') patch.override = 'max-10x';
+  const key = secretKey();
+  const mode = /^(sk|rk)_live/.test(key || '') ? 'live' : 'test';
+  if (key && (!d.customerId || (d.ownerMode && d.ownerMode !== mode))) {
+    try {
+      const c = await stripe().customers.create({ email: user.email, name: user.name || undefined, metadata: { uid: user.uid } });
+      Object.assign(patch, { customerId: c.id, ownerMode: mode });
+    } catch (err) {
+      console.error('owner customer', err?.message);
+    }
+  }
+  if (Object.keys(patch).length) await ref.set(patch, { merge: true });
+}
 
 // The card (or wallet / Link) the plan is paid with, for Settings › Billing: { brand, last4, expMonth, expYear, wallet }
 // Only the subscription's own payment method, else the customer's default, else their first saved card.
@@ -27,6 +47,7 @@ async function paymentMethodOf(record) {
 export default handle(async (req, res) => {
   const user = await requireUser(req);
   requireVerified(user);
+  if (isOwner(user)) await ensureOwner(user);
   let record = (await db().collection('plans').doc(user.uid).get()).data() || null;
   if (record?.subscriptionId && secretKey() && Date.now() - (record.checkedAt || 0) > RECHECK_MS) {
     try {

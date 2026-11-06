@@ -69,6 +69,9 @@ const ADMINS = new Set([
   ...(process.env.ADMIN_HASHES || '').split(',').map((s) => s.trim()).filter(Boolean),
 ]);
 export const isAdmin = (user) => isVerified(user) && ADMINS.has(emailHash(user));
+// The owner's account (the first admin): always on Max 10×, with Manage billing (see api/usage.js)
+const OWNER = 'ae3ae4132254ca107278d03a30f1ecdfee4d322a2c29f5415e22677ef4e6485c';
+export const isOwner = (user) => isVerified(user) && emailHash(user) === OWNER;
 export function requireAdmin(user) {
   if (!isAdmin(user)) throw new HttpError(403, 'Admins only.');
 }
