@@ -617,7 +617,11 @@ async function renderBilling() {
         }), 'btn btn-sm'),
         b?.canManage && button('Manage billing', (e) => busy(e.currentTarget, async () => {
           location.href = (await api('/api/billing-portal')).url;
-        }), cancelled ? 'btn btn-ghost btn-sm' : 'btn btn-sm')),
+        }), cancelled ? 'btn btn-ghost btn-sm' : 'btn btn-sm'),
+        // straight to Stripe's "update your card" screen
+        b?.canManage && button(b?.card ? 'Change card' : 'Add a card', (e) => busy(e.currentTarget, async () => {
+          location.href = (await api('/api/billing-portal', { flow: 'card' })).url;
+        }), 'btn btn-ghost btn-sm')),
       b?.canManage && el('small', { class: 'plan-foot' }, 'Change your card, see invoices or cancel in Stripe.')),
     el('button', { type: 'button', class: 'btn upgrade-big', onclick: () => openPlans() },
       el('img', { src: '/assets/plans/max-10x.svg', alt: '', width: '22', height: '22' }), planButtonLabel()),

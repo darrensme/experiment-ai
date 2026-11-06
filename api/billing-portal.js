@@ -25,10 +25,15 @@ export default handle(async (req, res) => {
   const customer = (await db().collection('plans').doc(user.uid).get()).data()?.customerId;
   if (!customer) throw new HttpError(400, 'You don’t have a paid plan yet.');
   const s = stripe();
+  const back = `${siteOrigin(req)}/home?open=billing`;
   const session = await s.billingPortal.sessions.create({
     customer,
     configuration: await portalConfig(s),
-    return_url: `${siteOrigin(req)}/home`,
+    return_url: back,
+    // "Change card": open straight on Stripe's update-your-card screen, then come back to Settings › Billing
+    ...(req.body?.flow === 'card' && {
+      flow_data: { type: 'payment_method_update', after_completion: { type: 'redirect', redirect: { return_url: back } } },
+    }),
   });
   res.status(200).json({ url: session.url });
 });
