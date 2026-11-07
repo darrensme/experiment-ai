@@ -6,7 +6,9 @@
   const CELL = 3; // each dot is 2×2 px inside a 3×3 px cell
   const PALETTES = {
     night: { base: [5, 7, 12], dots: ['#0a1222', '#0d1c3c', '#11295c', '#163a86', '#1d50b4', '#2a6fe0', '#4d93ff', '#8fc0ff', '#d6eaff', '#f4faff'] },
-    light: { base: [233, 239, 247], dots: ['#d9e3f1', '#c5d5ec', '#a9c2e7', '#86a9e0', '#5e8bd6', '#3a6ecb', '#2558b8', '#1a479d', '#123a85', '#0c2e6e'] },
+    // light: near-white paper; the streak is pale sky at its edges, vivid cobalt in its body and a white-hot highlight
+    // in its core, so it still reads as light (not a dark smear)
+    light: { base: [244, 247, 252], dots: ['#dde7f6', '#c6d7f2', '#a8c3ee', '#86aae8', '#628fe2', '#4479dc', '#3a70dd', '#4f86ea', '#8db8f7', '#e3f0ff'], boost: 1.1 },
   };
   const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
   const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
@@ -58,6 +60,7 @@
         let v = Math.exp(-(d * d) / (w * w));
         v *= 0.45 + 1.0 * fbm(t / 210, d / 55 + 7.3); // wisps along the streak
         v += 0.1 * fbm(x / 70 + 3, y / 70) - 0.02; // faint speckle everywhere
+        if (pal.boost) v *= pal.boost; // light paper needs more ink to show the streak
         if (v <= 0) continue;
         if (v > 1) v = 1;
         const th = BAYER[(r & 3) * 4 + (c & 3)];
