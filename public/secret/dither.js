@@ -1,19 +1,18 @@
-// The app's background: a dot-matrix (ordered-dither) field with a glowing diagonal streak, in blues.
-// Drawn once into a canvas at the window's size (redrawn on resize and theme change). Light and dark palettes.
+// The app's background, drawn as a dot-matrix (ordered dither) into a canvas at the window's size, redrawn on resize
+// and theme change. Two different designs:
+//   dark:  a glowing diagonal streak in blues on near-black
+//   light: mostly white, with soft dotted waves flowing across the lower part and a dotted "sun" ring top right
 (() => {
   const cv = document.getElementById('dither-bg');
   if (!cv) return;
   const CELL = 3; // each dot is 2×2 px inside a 3×3 px cell
   const PALETTES = {
     night: { base: [5, 7, 12], dots: ['#0a1222', '#0d1c3c', '#11295c', '#163a86', '#1d50b4', '#2a6fe0', '#4d93ff', '#8fc0ff', '#d6eaff', '#f4faff'] },
-    // light: near-white paper; the streak is pale sky at its edges, vivid cobalt in its body and a white-hot highlight
-    // in its core, so it still reads as light (not a dark smear)
-    // mostly white: a thinner streak, paler dots, almost no speckle
-    light: { base: [251, 252, 255], dots: ['#edf2fa', '#e0e8f6', '#cddbf3', '#b4c9ef', '#94b3ea', '#759de5', '#5d8ce2', '#78a3ee', '#b2d0f9', '#f3f8ff'], boost: 0.78, width: 0.62, speckle: 0.025 },
+    light: { base: [252, 253, 255], dots: ['#edf2fa', '#dfe8f6', '#cad9f3', '#adc6ef', '#8eb1ea', '#7099e5', '#5788e1', '#4479da', '#3a6fd2', '#2f62c2'] },
   };
   const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
   const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
-  // smooth value noise, so the streak has wisps instead of a flat gradient
+  // smooth value noise, so shapes have wisps instead of flat gradients
   const hash = (x, y) => {
     let h = (x * 374761393 + y * 668265263) | 0;
     h = Math.imul(h ^ (h >>> 13), 1274126177);
@@ -32,6 +31,44 @@
     return t === 'night' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
   };
 
+  // dark: a line from the upper left falling to the lower right, glowing wide above and tight below
+  function streakField(W, H) {
+    const x0 = 0.12 * W; const y0 = 0.14 * H; const slope = 0.5;
+    const len = Math.hypot(1, slope);
+    const tx = 1 / len; const ty = slope / len; const nx = -slope / len; const ny = 1 / len;
+    const width = Math.max(W, H) * 0.15;
+    return (x, y) => {
+      const dx = x - x0; const dy = y - y0;
+      const d = dx * nx + dy * ny; const t = dx * tx + dy * ty;
+      const w = d < 0 ? width * 1.5 : width * 0.62;
+      let v = Math.exp(-(d * d) / (w * w));
+      v *= 0.45 + 1.0 * fbm(t / 210, d / 55 + 7.3); // wisps along the streak
+      return v + 0.1 * fbm(x / 70 + 3, y / 70) - 0.02; // faint speckle everywhere
+    };
+  }
+
+  // light: soft waves across the lower part, a gentle rise along the bottom edge, and a dotted sun ring top right
+  function waveField(W, H) {
+    const R = Math.min(W, H) * 0.13;
+    const sx = W * 0.84; const sy = H * 0.2;
+    return (x, y) => {
+      let v = 0;
+      for (let k = 0; k < 4; k++) {
+        const yk = H * (0.6 + k * 0.085)
+          + Math.sin((x / W) * Math.PI * 2 * (0.7 + k * 0.15) + k * 1.7) * H * (0.045 + k * 0.01)
+          + (fbm(x / 260 + k * 5, k) - 0.5) * H * 0.04;
+        const w = H * (0.028 + k * 0.006);
+        const d = y - yk;
+        v += Math.exp(-(d * d) / (w * w)) * (0.62 - k * 0.1);
+      }
+      const rise = Math.max(0, (y - H * 0.72) / (H * 0.28));
+      v += 0.26 * rise * rise;
+      const dist = Math.hypot(x - sx, y - sy);
+      v += 0.55 * Math.exp(-((dist - R) ** 2) / ((R * 0.12) ** 2)) + 0.16 * Math.exp(-(dist * dist) / ((R * 0.75) ** 2));
+      return v * (0.72 + 0.5 * fbm(x / 120, y / 120)) - 0.02;
+    };
+  }
+
   function draw() {
     const W = innerWidth; const H = innerHeight;
     const cols = Math.ceil(W / CELL); const rows = Math.ceil(H / CELL);
@@ -39,30 +76,17 @@
     cv.style.width = `${cv.width}px`; cv.style.height = `${cv.height}px`;
     const night = isNight();
     const pal = PALETTES[night ? 'night' : 'light'];
+    const field = night ? streakField(W, H) : waveField(W, H);
     const dots = pal.dots.map(hex);
     const ctx = cv.getContext('2d');
     const img = ctx.createImageData(cv.width, cv.height);
     const px = img.data;
     for (let i = 0; i < px.length; i += 4) { px[i] = pal.base[0]; px[i + 1] = pal.base[1]; px[i + 2] = pal.base[2]; px[i + 3] = 255; }
-    // the streak: a line from the upper left falling to the lower right, glowing wide above and tight below
-    const x0 = 0.12 * W; const y0 = 0.14 * H; const slope = 0.5;
-    const len = Math.hypot(1, slope);
-    const tx = 1 / len; const ty = slope / len; // along the line
-    const nx = -slope / len; const ny = 1 / len; // across it (positive = below)
-    const width = Math.max(W, H) * 0.15 * (pal.width || 1);
-    const speckle = pal.speckle ?? 0.1;
     const top = dots.length - 1;
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const x = c * CELL + 1; const y = r * CELL + 1;
-        const dx = x - x0; const dy = y - y0;
-        const d = dx * nx + dy * ny;
-        const t = dx * tx + dy * ty;
-        const w = d < 0 ? width * 1.5 : width * 0.62;
-        let v = Math.exp(-(d * d) / (w * w));
-        v *= 0.45 + 1.0 * fbm(t / 210, d / 55 + 7.3); // wisps along the streak
-        v += speckle * fbm(x / 70 + 3, y / 70) - 0.02; // faint speckle everywhere
-        if (pal.boost) v *= pal.boost; // light paper needs more ink to show the streak
+        let v = field(x, y);
         if (v <= 0) continue;
         if (v > 1) v = 1;
         const th = BAYER[(r & 3) * 4 + (c & 3)];

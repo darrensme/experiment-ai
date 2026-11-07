@@ -208,26 +208,63 @@ function micLevel() {
   for (const v of voice.buf) sum += v * v;
   return Math.min(1, Math.sqrt(sum / voice.buf.length) * 5);
 }
-// a round dot-matrix orb that swells with your voice (and breathes while thinking or speaking)
-function drawOrb() {
+// The orb: a slowly turning 3D sphere of dots (dither style). Breathes when idle, swells and jitters with your voice
+// (with pulse rings) while listening, spins fast while thinking, and ripples in waves while speaking.
+const ORB_POINTS = (() => {
+  const n = 520; const pts = []; const golden = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < n; i++) {
+    const y = 1 - (i / (n - 1)) * 2; const r = Math.sqrt(1 - y * y); const th = golden * i;
+    pts.push([Math.cos(th) * r, y, Math.sin(th) * r]);
+  }
+  return pts;
+})();
+function drawOrb(now = performance.now()) {
   if (!voice) return;
-  voice.level = voice.level * 0.7 + micLevel() * 0.3;
+  voice.level = voice.level * 0.72 + micLevel() * 0.28;
+  const dt = Math.min(0.05, (now - (voice.last || now)) / 1000);
+  voice.last = now;
+  const t = now / 1000;
+  const st = voice.state;
+  const speed = st === 'thinking' ? 2.4 : st === 'speaking' ? 0.9 : st === 'listening' ? 0.45 + voice.level * 1.5 : 0.18;
+  voice.rot = (voice.rot || 0) + speed * dt;
   const g = voice.orb.getContext('2d');
-  const S = voice.orb.width;
+  const S = voice.orb.width; const c = S / 2;
+  const breathe = 1 + Math.sin(t * 1.3) * 0.03;
+  const swell = st === 'listening' ? voice.level * 0.32 : st === 'speaking' ? 0.05 + Math.abs(Math.sin(t * 4.2)) * 0.07 : st === 'thinking' ? 0.025 * Math.sin(t * 5) : 0;
+  const R = S * 0.29 * (breathe + swell);
   g.clearRect(0, 0, S, S);
-  const t = performance.now() / 1000;
-  const swell = voice.state === 'listening' ? voice.level * 26 : voice.state === 'speaking' ? 8 + Math.sin(t * 6) * 6 : voice.state === 'thinking' ? 4 + Math.sin(t * 3) * 4 : 0;
-  const R = S * 0.3 + swell * 1.4;
-  for (let y = 4; y < S; y += 6) {
-    for (let x = 4; x < S; x += 6) {
-      const d = Math.hypot(x - S / 2, y - S / 2);
-      if (d > R) continue;
-      const k = 1 - d / R;
-      const wob = 0.5 + 0.5 * Math.sin(x * 0.09 + t * 2) * Math.cos(y * 0.08 - t * 1.6);
-      const a = Math.min(1, 0.25 + k * 0.9 * (0.6 + 0.4 * wob));
-      g.fillStyle = `rgba(${Math.round(70 + 160 * k)}, ${Math.round(140 + 100 * k)}, 255, ${a})`;
-      g.fillRect(x - 1.5, y - 1.5, 3, 3);
+  // a soft glow behind
+  const glow = g.createRadialGradient(c, c, R * 0.2, c, c, R * 1.55);
+  glow.addColorStop(0, 'rgba(77, 147, 255, .28)');
+  glow.addColorStop(1, 'rgba(77, 147, 255, 0)');
+  g.fillStyle = glow;
+  g.fillRect(0, 0, S, S);
+  // pulse rings while listening
+  if (st === 'listening') {
+    for (let k = 0; k < 2; k++) {
+      const p = (t * 0.6 + k * 0.5) % 1;
+      g.strokeStyle = `rgba(110, 170, 255, ${(1 - p) * (0.18 + voice.level * 0.5)})`;
+      g.lineWidth = 2;
+      g.beginPath(); g.arc(c, c, R * (1.08 + p * 0.45), 0, Math.PI * 2); g.stroke();
     }
+  }
+  const a = voice.rot; const tilt = 0.35 + Math.sin(t * 0.4) * 0.12;
+  const ca = Math.cos(a); const sa = Math.sin(a); const cb = Math.cos(tilt); const sb = Math.sin(tilt);
+  const drawn = [];
+  for (const [x, y, z] of ORB_POINTS) {
+    const x1 = x * ca + z * sa; const z1 = -x * sa + z * ca;
+    const y2 = y * cb - z1 * sb; const z2 = y * sb + z1 * cb;
+    let r = 1;
+    if (st === 'speaking') r += 0.09 * Math.sin(y2 * 7 - t * 9);
+    else if (st === 'listening') r += voice.level * 0.16 * Math.sin(x1 * 6 + t * 12) * Math.cos(y2 * 5 - t * 7);
+    else if (st === 'thinking') r += 0.04 * Math.sin((x1 + y2) * 9 + t * 14);
+    drawn.push([c + x1 * R * r, c + y2 * R * r, (z2 + 1) / 2]);
+  }
+  drawn.sort((p, q) => p[2] - q[2]); // far dots first
+  for (const [px, py, depth] of drawn) {
+    const size = 1.3 + depth * 3;
+    g.fillStyle = `rgba(${Math.round(60 + 190 * depth)}, ${Math.round(130 + 115 * depth)}, 255, ${0.12 + 0.88 * depth})`;
+    g.fillRect(px - size / 2, py - size / 2, size, size);
   }
   voice.raf = requestAnimationFrame(drawOrb);
 }

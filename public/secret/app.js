@@ -269,7 +269,7 @@ function newGreeting() {
   const h = new Date().getHours();
   const plain = ['Good ', h < 5 ? 'evening' : h < 12 ? 'morning' : h < 18 ? 'afternoon' : 'evening', '']; // greetings off
   const [before, word, after] = prefs.greetings ? GREETINGS[i] : plain;
-  greetingText.replaceChildren(before, el('span', { class: 'serif' }, word), after);
+  void before; void word; void after; // the home shows the brand now (home.html), not a greeting
 
   greetingRow.classList.remove('fresh');
   void greetingRow.offsetWidth; // restart the entrance animation
@@ -446,18 +446,22 @@ function editMessage(m, li) {
 }
 const richBody = (text) => el('div', { class: 'msg-text rich' }, window.richText(text));
 
-// Side by side: two answers next to each other; "Keep this one" makes it the reply
+// Side by side: two answers next to each other. Both stay visible; "Use this one" picks which the session
+// continues from (it's what the AI sees next time).
 function pairBox(m) {
+  const picked = m.picked ?? (m.pair.findIndex((p) => p.text) || 0);
   return el('div', { class: 'pair' }, m.pair.map((p, i) => {
     const mod = modelById(p.model);
-    return el('div', { class: 'pair-col' },
+    return el('div', { class: `pair-col${i === picked ? ' picked' : ''}` },
       el('div', { class: 'pair-head' },
         mod && el('img', { src: BRANDS[mod.brand].logo, alt: '', width: '16', height: '16' }),
         el('strong', {}, mod ? mod.name : p.model)),
       p.error ? el('div', { class: 'msg-error' }, p.error) : richBody(p.text),
       !p.error && el('div', { class: 'pair-foot' },
         copyAct(() => p.text),
-        el('button', { type: 'button', class: 'mini pair-keep', onclick: () => keepPair(m, i) }, 'Keep this one')));
+        i === picked
+          ? el('span', { class: 'pair-using' }, icon('check'), 'Using this one')
+          : el('button', { type: 'button', class: 'mini pair-keep', onclick: () => keepPair(m, i) }, 'Use this one')));
   }));
 }
 function keepPair(m, i) {
@@ -465,7 +469,7 @@ function keepPair(m, i) {
   const p = m.pair[i];
   m.text = p.text;
   m.model = p.model;
-  delete m.pair;
+  m.picked = i;
   if (chat) { chat.updatedAt = Date.now(); saveChats(); }
   const li = [...messagesEl.children].find((x) => x._msg === m);
   if (li) li.replaceWith(renderMessage(m));
@@ -609,16 +613,24 @@ function chip(iconName, label, removeLabel, onRemove, cls = '') {
     el('button', { type: 'button', class: 'chip-x', 'aria-label': removeLabel, title: removeLabel, onclick: onRemove }, icon('x')));
 }
 
-// Side by side: a second chat model that answers next to the main one (null = off). Kept in this browser.
+// Side by side: a second chat model that answers next to the main one (null = off).
+// Each session remembers its own (chat.compare), so a side-by-side session stays side by side, even after reopening,
+// until the second model is removed. New sessions start with the last choice (kept in this browser).
 var compareWith; // eslint-disable-line no-var -- read before this line runs on first load
 function getCompare() {
   if (compareWith === undefined) { try { compareWith = localStorage.getItem('ea.compare') || null; } catch { compareWith = null; } }
-  const b = modelById(compareWith);
+  const chat = current();
+  const b = modelById(chat ? chat.compare : compareWith);
   return b && b.kind === 'chat' ? b : null;
 }
 function setCompare(id) {
   compareWith = id || null;
   try { id ? localStorage.setItem('ea.compare', id) : localStorage.removeItem('ea.compare'); } catch {}
+  const chat = current();
+  if (chat) {
+    if (id) chat.compare = id; else delete chat.compare;
+    saveChats();
+  }
   renderChips();
 }
 function renderChips() {
@@ -631,9 +643,6 @@ function renderChips() {
   }
   if (project) {
     items.push(chip('folder', project.name, `Take this session out of ${project.name}`, () => { s.projectId = null; persistSettings(); }, 'chip-project'));
-  }
-  if (!s.memory) {
-    items.push(chip(null, 'Memory off', 'Save this session to memory again', () => { s.memory = true; persistSettings(); }, 'chip-memory'));
   }
   // connectors switched on for this chat (only ones still connected, once we know)
   (s.tools || []).forEach((t) => {
@@ -674,6 +683,8 @@ composer.addEventListener('submit', (e) => {
   let chat = current();
   if (!chat) {
     chat = { id: uid(), title: titleFor(text, attachments), projectId: draft.projectId, memory: draft.memory, tools: [...(draft.tools || [])], createdAt: now, updatedAt: now, messages: [] };
+    const pairWith = getCompare(); // home: the last side-by-side choice carries into the new session
+    if (pairWith) chat.compare = pairWith.id;
     chats.push(chat);
     currentId = chat.id;
   }
@@ -738,7 +749,7 @@ async function streamChat(chat, model, on, signal) {
     signal,
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await window.eaAuth.token()}` },
     body: JSON.stringify({
-      model, effort: chat.effort, memory: chat.memory, tools: chat.tools || [], driveFiles: driveFilesIn(chat), messages: toApi(chat),
+      model, effort: chat.effort, memory: true, tools: chat.tools || [], driveFiles: driveFilesIn(chat), messages: toApi(chat),
       clock: { tz: Intl.DateTimeFormat().resolvedOptions().timeZone }, // so "tonight" means your tonight
     }),
   });
@@ -1059,7 +1070,18 @@ function renderModelMenu() {
       el('img', { src: BRANDS[b].logo, alt: '', width: '18', height: '18' }),
       el('span', { class: 'grow' }, BRANDS[b].name),
       m.brand === b && el('span', { class: 'brand-current' }, shortName(m)),
-      icon('chevron'))));
+      icon('chevron'))),
+      m.kind === 'chat' && [
+        el('div', { class: 'menu-sep model-sep', role: 'separator' }),
+        el('button', { type: 'button', class: 'menu-item brand-row', 'aria-haspopup': 'true', onclick: () => showBrand('pair') },
+          icon('pair'), el('span', { class: 'grow' }, 'Side by side'),
+          getCompare() && el('span', { class: 'brand-current' }, `vs ${shortName(getCompare())}`),
+          icon('chevron')),
+      ]);
+  } else if (menuBrand === 'pair') {
+    fill(view,
+      el('button', { type: 'button', class: 'back model-back', onclick: () => showBrand(null) }, icon('back'), icon('pair'), 'Side by side'),
+      pairOptions());
   } else {
     // one brand: chat models, then image models, then video models, each under a labelled divider
     const sections = KINDS.map(([k, label]) => [label, modelsFor(k, menuBrand)]).filter(([, list]) => list.length);
@@ -1154,7 +1176,6 @@ accountMenu.querySelectorAll('a').forEach((a) => a.addEventListener('click', clo
 const menuOpen = () => isShown(plusMenu);
 function openMenu() {
   closeModelMenu();
-  memoryToggle.checked = settings().memory;
   renderMenuProjects();
   $('menu-projects').hidden = true;
   $('menu-project-btn').setAttribute('aria-expanded', 'false');
@@ -1198,7 +1219,7 @@ $('menu-project-btn').addEventListener('click', () => {
   $('menu-project-btn').setAttribute('aria-expanded', String(!list.hidden));
   placeMenu(plusMenu);
 });
-memoryToggle.addEventListener('change', () => {
+memoryToggle?.addEventListener('change', () => {
   settings().memory = memoryToggle.checked;
   persistSettings();
 });
@@ -1270,41 +1291,26 @@ $('menu-tools-btn').addEventListener('click', () => {
   placeMenu(plusMenu);
 });
 
-/* ── + menu › Side by side: pick a second AI to answer next to the one under the bar ── */
-const pairCount = el('span', { class: 'menu-count pair-pick', hidden: true });
-const pairItem = el('button', { type: 'button', class: 'menu-item', role: 'menuitem', 'aria-expanded': 'false', 'aria-controls': 'menu-pair' },
-  icon('pair'), el('span', { class: 'grow' }, 'Side by side'), pairCount, icon('chevron'));
-pairItem.lastChild.classList.add('chev');
-const pairList = el('div', { class: 'menu-projects menu-pair', id: 'menu-pair', hidden: true });
-$('menu-tools').after(pairItem, pairList);
-function renderPairMenu() {
+/* ── Model picker › Side by side: a second AI answers next to the one you picked ── */
+function pairOptions() {
   const b = getCompare();
-  pairCount.hidden = !b;
-  pairCount.textContent = b ? shortName(b) : '';
-  if (pairList.hidden) return;
   const main = modelById(choice.model);
   const opt = (id, label, logo) => el('button', {
-    type: 'button', class: 'menu-item menu-option', role: 'menuitemradio', 'aria-checked': String((b?.id || null) === id),
-    disabled: id && id === main.id, title: id && id === main.id ? 'Already answering: it’s the model under the bar' : null,
-    onclick: () => { setCompare(id); closeMenu(); if (id) notice(`Side by side is on: ${modelById(id).name} answers next to ${main.name}`); },
-  }, logo ? el('img', { src: logo, alt: '', width: '16', height: '16' }) : icon('x'), el('span', { class: 'grow' }, label), (b?.id || null) === id && icon('check'));
-  fill(pairList,
-    el('p', { class: 'menu-note' }, main.kind === 'chat' ? `Ask once and get a second answer next to ${main.name}. Keep the one you like.` : 'Side by side works with chat models. Pick one under the bar first.'),
+    type: 'button', class: 'menu-item model-opt', role: 'menuitemradio', 'aria-checked': String((b?.id || null) === id),
+    disabled: id && id === main.id, title: id && id === main.id ? 'Already answering: it’s the model you picked' : null,
+    onclick: () => { setCompare(id); closeModelMenu(); if (id) notice(`Side by side is on: ${modelById(id).name} answers next to ${main.name}`); },
+  }, logo ? el('img', { src: logo, alt: '', width: '16', height: '16' }) : icon('x'), el('span', { class: 'grow model-opt-name' }, label), (b?.id || null) === id && icon('check'));
+  return [
+    el('p', { class: 'menu-note' }, main.kind === 'chat' ? `Ask once and get a second answer next to ${main.name}. The session stays side by side until you turn it off.` : 'Side by side works with chat models. Pick one first.'),
     main.kind === 'chat' && [
       opt(null, 'Off'),
       Object.keys(BRANDS).map((br) => {
         const list = modelsFor('chat', br);
         return list.length && [el('div', { class: 'model-sep-label' }, el('span', {}, BRANDS[br].name)), list.map((x) => opt(x.id, x.name, BRANDS[br].logo))];
       }),
-    ]);
+    ],
+  ];
 }
-pairItem.addEventListener('click', () => {
-  pairList.hidden = !pairList.hidden;
-  pairItem.setAttribute('aria-expanded', String(!pairList.hidden));
-  renderPairMenu();
-  placeMenu(plusMenu);
-});
-plusBtn.addEventListener('click', () => { pairList.hidden = true; pairItem.setAttribute('aria-expanded', 'false'); renderPairMenu(); });
 
 function pickedItems(list, folder) {
   const raw = [...list];

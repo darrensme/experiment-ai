@@ -66,16 +66,18 @@ function cleanChat(c) {
       const pair = list(m?.pair, 2).filter((p) => typeof p?.model === 'string')
         .map((p) => ({ model: str(p.model, 80), text: str(p.text, CONTENT_MAX), ...(p.error && { error: str(p.error, 300) }) }));
       if (pair.length === 2) out.pair = pair;
+      if (pair.length === 2 && (m.picked === 0 || m.picked === 1)) out.picked = m.picked; // which answer the session uses
     }
     return out;
   });
   const now = Date.now();
   return {
-    title: str(c.title, 120).trim() || 'New chat',
+    title: str(c.title, 120).trim() || 'New session',
     projectId: validId(c.projectId) ? c.projectId : null,
     memory: c.memory !== false,
     tools: list(c.tools, 4).filter((t) => TOOLS.includes(t)),
     model: str(c.model, 80) || null,
+    compare: str(c.compare, 80) || null, // side by side: the session's second model
     effort: EFFORTS.includes(c.effort) ? c.effort : null,
     createdAt: num(c.createdAt, now),
     updatedAt: num(c.updatedAt, now),
@@ -96,7 +98,7 @@ function cleanProject(p) {
 // Older chats (from the first version of the app) stored { role, content }; give them the app's shape.
 const asChat = (id, d) => ({
   id, ...d,
-  title: d.title || 'New chat',
+  title: d.title || 'New session',
   messages: (d.messages || []).map((m) => (m.text != null ? m : { role: m.role, text: m.content || '', at: d.updatedAt || 0 })),
 });
 
