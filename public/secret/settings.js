@@ -1181,7 +1181,7 @@ async function renderAdmin(more = false) {
 let feedbackFilter = 'all';
 async function renderAdminFeedback(data = null) {
   const back = el('button', { type: 'button', class: 'back', onclick: () => renderAdmin() }, icon('back'), 'All accounts');
-  const top = [back, head('Reply feedback', 'Thumbs up and down on replies. Incognito sessions never send any.')];
+  const top = [back, head('Reply feedback', 'Thumbs up and down on replies.')];
   if (!data) {
     fill(settingsBody, top, loading());
     try { data = await api('/api/settings', { action: 'admin-feedback' }); } catch (err) { fill(settingsBody, top, failed(err, () => renderAdminFeedback())); return; }

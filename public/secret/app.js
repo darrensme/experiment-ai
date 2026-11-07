@@ -142,9 +142,7 @@ let attachments = [];                          // [{ kind: 'file' | 'folder', na
 let projView = { mode: 'list', id: null };
 let assignNewProject = false;                  // "New project…" from the + menu puts this chat in it
 let fileTarget = null;                         // null = the message bar, or a project id
-// Incognito: a chat kept only here, in memory. Never in `chats`, so it's never saved, synced or listed; memory is off.
-let incog = null;
-const current = () => (incog && incog.id === currentId ? incog : chats.find((c) => c.id === currentId)) || null;
+const current = () => chats.find((c) => c.id === currentId) || null;
 const settings = () => current() || draft;
 function persistSettings() {
   if (current()) saveChats();
@@ -287,16 +285,9 @@ function setChatting(on) {
   glideTimer = setTimeout(() => composer.classList.remove('gliding'), 750);
 }
 
-function setIncognito(on) {
-  document.body.classList.toggle('incognito', on);
-  incogBar.hidden = !on;
-  $('incog-btn')?.setAttribute('aria-pressed', String(on));
-}
-function goHome({ projectId = null, incognito = false } = {}) {
+function goHome({ projectId = null } = {}) {
   currentId = null;
-  incog = null; // leaving an incognito chat throws it away
-  setIncognito(incognito);
-  draft = { projectId: incognito ? null : projectId, memory: !incognito, tools: [], incognito };
+  draft = { projectId, memory: true, tools: [] };
   attachments = [];
   messagesEl.replaceChildren();
   setChatting(false);
@@ -312,8 +303,6 @@ function openChat(id) {
   const chat = chats.find((c) => c.id === id);
   if (!chat) return;
   currentId = id;
-  incog = null;
-  setIncognito(false);
   attachments = [];
   closeMenu();
   closeModelMenu();
@@ -329,18 +318,6 @@ function openChat(id) {
 }
 
 $('new-chat').addEventListener('click', () => goHome());
-// the incognito button under New chat, and the note above an incognito chat
-ICONS.incog = '<path d="M3.5 11h17"/><path d="M6 11l1.6-5.2a1.5 1.5 0 0 1 2-1L12 5.6l2.4-.8a1.5 1.5 0 0 1 2 1L18 11"/><circle cx="8" cy="16" r="2.6"/><circle cx="16" cy="16" r="2.6"/><path d="M10.6 16h2.8"/>';
-const incogIcon = () => icon('incog');
-// a quiet note under the message bar, between the model and Usage
-const incogBar = el('div', { class: 'incog-bar', role: 'status', hidden: true, title: 'This session isn’t saved and memory is off. It’s gone when you leave.' },
-  incogIcon(), el('strong', {}, 'Incognito'), el('span', { class: 'incog-more' }, '· not saved, memory off'));
-composer.append(incogBar);
-// a small round button in the top-right corner
-app.append(el('button', {
-  type: 'button', class: 'incog-corner', id: 'incog-btn', 'aria-pressed': 'false', 'aria-label': 'Incognito session',
-  title: 'Incognito session: not saved, memory off', onclick: () => goHome({ incognito: !(incog || draft.incognito) }),
-}, incogIcon()));
 
 // Images and videos the AI made (stored in Blob); "?download=1" makes Blob send it as a download
 const downloadUrl = (u) => `${u}${u.includes('?') ? '&' : '?'}download=1`;
@@ -372,10 +349,10 @@ Object.assign(ICONS, {
   edit: '<path d="M14.5 5.5l4 4L9 19H5v-4z"/><path d="M12.5 7.5l4 4"/>',
   pair: '<rect x="3.5" y="5" width="7" height="14" rx="2"/><rect x="13.5" y="5" width="7" height="14" rx="2"/>',
 });
-const chatOf = (m) => (incog?.messages.includes(m) ? incog : chats.find((c) => c.messages.includes(m)));
-// thumbs go to the admins' Reply feedback list (never from incognito chats)
+const chatOf = (m) => chats.find((c) => c.messages.includes(m));
+// thumbs go to the admins' Reply feedback list
 async function sendRating(chat, m) {
-  if (!window.eaAuth || !chat || chat.incognito) return;
+  if (!window.eaAuth || !chat) return;
   try {
     await fetch('/api/chats', {
       method: 'POST',
@@ -653,7 +630,7 @@ function renderChips() {
   if (project) {
     items.push(chip('folder', project.name, `Take this session out of ${project.name}`, () => { s.projectId = null; persistSettings(); }, 'chip-project'));
   }
-  if (!s.memory && !s.incognito) {
+  if (!s.memory) {
     items.push(chip(null, 'Memory off', 'Save this session to memory again', () => { s.memory = true; persistSettings(); }, 'chip-memory'));
   }
   // connectors switched on for this chat (only ones still connected, once we know)
@@ -695,8 +672,7 @@ composer.addEventListener('submit', (e) => {
   let chat = current();
   if (!chat) {
     chat = { id: uid(), title: titleFor(text, attachments), projectId: draft.projectId, memory: draft.memory, tools: [...(draft.tools || [])], createdAt: now, updatedAt: now, messages: [] };
-    if (draft.incognito) { chat.incognito = true; chat.memory = false; chat.projectId = null; incog = chat; } // kept out of `chats`: never saved
-    else chats.push(chat);
+    chats.push(chat);
     currentId = chat.id;
   }
   const files = attachments.flatMap((a) => a.files);
@@ -760,7 +736,7 @@ async function streamChat(chat, model, on, signal) {
     signal,
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await window.eaAuth.token()}` },
     body: JSON.stringify({
-      model, effort: chat.effort, memory: chat.incognito ? false : chat.memory, tools: chat.tools || [], driveFiles: driveFilesIn(chat), messages: toApi(chat),
+      model, effort: chat.effort, memory: chat.memory, tools: chat.tools || [], driveFiles: driveFilesIn(chat), messages: toApi(chat),
       clock: { tz: Intl.DateTimeFormat().resolvedOptions().timeZone }, // so "tonight" means your tonight
     }),
   });
