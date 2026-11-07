@@ -6,11 +6,11 @@
 const settingsLayer = $('settings');
 const settingsBody = $('settings-body');
 const TABS = [
-  ['account', 'Account', '<path d="M18 20a6 6 0 0 0-12 0" /><circle cx="12" cy="10" r="4" /><circle cx="12" cy="12" r="10" />'],
-  ['billing', 'Billing', '<rect width="20" height="14" x="2" y="5" rx="2" /><line x1="2" x2="22" y1="10" y2="10" />'],
-  ['usage', 'Usage', '<line x1="18" x2="18" y1="20" y2="10" /><line x1="12" x2="12" y1="20" y2="4" /><line x1="6" x2="6" y1="20" y2="14" />'],
-  ['personalization', 'Personalization', '<circle cx="13.5" cy="6.5" r=".5" fill="currentColor" /><circle cx="17.5" cy="10.5" r=".5" fill="currentColor" /><circle cx="8.5" cy="7.5" r=".5" fill="currentColor" /><circle cx="6.5" cy="12.5" r=".5" fill="currentColor" /><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" />'],
-  ['connectors', 'Connectors', '<path d="M12 22v-5" /><path d="M9 8V2" /><path d="M15 8V2" /><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" />'],
+  ['account', 'Account', '<path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24ZM74.08,197.5a64,64,0,0,1,107.84,0,87.83,87.83,0,0,1-107.84,0ZM96,120a32,32,0,1,1,32,32A32,32,0,0,1,96,120Zm97.76,66.41a79.66,79.66,0,0,0-36.06-28.75,48,48,0,1,0-59.4,0,79.66,79.66,0,0,0-36.06,28.75,88,88,0,1,1,131.52,0Z"/>'],
+  ['billing', 'Billing', '<path d="M224,48H32A16,16,0,0,0,16,64V192a16,16,0,0,0,16,16H224a16,16,0,0,0,16-16V64A16,16,0,0,0,224,48Zm0,16V88H32V64Zm0,128H32V104H224v88Zm-16-24a8,8,0,0,1-8,8H168a8,8,0,0,1,0-16h32A8,8,0,0,1,208,168Zm-64,0a8,8,0,0,1-8,8H120a8,8,0,0,1,0-16h16A8,8,0,0,1,144,168Z"/>'],
+  ['usage', 'Usage', '<path d="M224,200h-8V40a8,8,0,0,0-8-8H152a8,8,0,0,0-8,8V80H96a8,8,0,0,0-8,8v40H48a8,8,0,0,0-8,8v64H32a8,8,0,0,0,0,16H224a8,8,0,0,0,0-16ZM160,48h40V200H160ZM104,96h40V200H104ZM56,144H88v56H56Z"/>'],
+  ['personalization', 'Personalization', '<path d="M200.77,53.89A103.27,103.27,0,0,0,128,24h-1.07A104,104,0,0,0,24,128c0,43,26.58,79.06,69.36,94.17A32,32,0,0,0,136,192a16,16,0,0,1,16-16h46.21a31.81,31.81,0,0,0,31.2-24.88,104.43,104.43,0,0,0,2.59-24A103.28,103.28,0,0,0,200.77,53.89Zm13,93.71A15.89,15.89,0,0,1,198.21,160H152a32,32,0,0,0-32,32,16,16,0,0,1-21.31,15.07C62.49,194.3,40,164,40,128a88,88,0,0,1,87.09-88h.9a88.35,88.35,0,0,1,88,87.25A88.86,88.86,0,0,1,213.81,147.6ZM140,76a12,12,0,1,1-12-12A12,12,0,0,1,140,76ZM96,100A12,12,0,1,1,84,88,12,12,0,0,1,96,100Zm0,56a12,12,0,1,1-12-12A12,12,0,0,1,96,156Zm88-56a12,12,0,1,1-12-12A12,12,0,0,1,184,100Z"/>'],
+  ['connectors', 'Connectors', '<path d="M237.66,66.34a8,8,0,0,0-11.32,0L192,100.69,155.31,64l34.35-34.34a8,8,0,1,0-11.32-11.32L144,52.69,117.66,26.34a8,8,0,0,0-11.32,11.32L112.69,44l-53,53a40,40,0,0,0,0,56.57l15.71,15.71L26.34,218.34a8,8,0,0,0,11.32,11.32l49.09-49.09,15.71,15.71a40,40,0,0,0,56.57,0l53-53,6.34,6.35a8,8,0,0,0,11.32-11.32L203.31,112l34.35-34.34A8,8,0,0,0,237.66,66.34ZM147.72,185a24,24,0,0,1-33.95,0L71,142.23a24,24,0,0,1,0-33.95l53-53L200.69,132Z"/>'],
 ];
 const PLAN_INFO = {
   free: { name: 'Free', price: 0, note: 'Try it out' },
@@ -356,7 +356,7 @@ settingsLayer.addEventListener('pointerdown', (e) => { if (e.target === settings
 
 function svgIcon(paths) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('viewBox', '0 0 256 256');
   svg.setAttribute('class', 'ico');
   svg.setAttribute('aria-hidden', 'true');
   svg.innerHTML = paths;
@@ -364,7 +364,7 @@ function svgIcon(paths) {
 }
 // the Admin tab only appears for admins (api/settings.js 'get' says isAdmin)
 let isAdminUser = false;
-const ADMIN_TAB = ['admin', 'Admin', '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /><path d="m9 12 2 2 4-4" />'];
+const ADMIN_TAB = ['admin', 'Admin', '<path d="M208,40H48A16,16,0,0,0,32,56v56c0,52.72,25.52,84.67,46.93,102.19,23.06,18.86,46,25.26,47,25.53a8,8,0,0,0,4.2,0c1-.27,23.91-6.67,47-25.53C198.48,196.67,224,164.72,224,112V56A16,16,0,0,0,208,40Zm0,72c0,37.07-13.66,67.16-40.6,89.42A129.3,129.3,0,0,1,128,223.62a128.25,128.25,0,0,1-38.92-21.81C61.82,179.51,48,149.3,48,112l0-56,160,0ZM82.34,141.66a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32l-56,56a8,8,0,0,1-11.32,0Z"/>'];
 const visibleTabs = () => (isAdminUser ? [...TABS, ADMIN_TAB] : TABS);
 function buildTabs() {
   fill($('settings-tabs'), visibleTabs().map(([key, label, paths]) => el('button', {
@@ -647,7 +647,7 @@ const PRICING = {
     points: ['Everything in Pro, with **all models**', 'Video generation', 'Our highest limits', 'First access to new features', 'Highest priority, always'] },
 };
 const CARD_KEYS = ['free', 'light', 'pro', 'max'];
-const LOCK = '<rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />';
+const LOCK = '<path d="M208,80H176V56a48,48,0,0,0-96,0V80H48A16,16,0,0,0,32,96V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V96A16,16,0,0,0,208,80ZM96,56a32,32,0,0,1,64,0V80H96ZM208,208H48V96H208V208Zm-68-56a12,12,0,1,1-12-12A12,12,0,0,1,140,152Z"/>';
 const cardOf = (p) => (p.startsWith('max') ? 'max' : p);
 const tierOf = (p) => (p === 'max-10x' ? '10x' : '5x');
 const planRank = (p) => (p === 'free' ? -1 : PAID_ORDER.indexOf(p));
@@ -1124,7 +1124,7 @@ function showBanned(ban) {
   const when = ban?.at ? new Date(ban.at).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' }) : null;
   document.body.append(el('div', { class: 'banned-layer', role: 'alertdialog', 'aria-modal': 'true', 'aria-labelledby': 'banned-title' },
     el('div', { class: 'banned-card' },
-      el('div', { class: 'banned-icon', 'aria-hidden': 'true' }, svgIcon('<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>')),
+      el('div', { class: 'banned-icon', 'aria-hidden': 'true' }, svgIcon('<path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm88,104a87.56,87.56,0,0,1-20.41,56.28L71.72,60.4A88,88,0,0,1,216,128ZM40,128A87.56,87.56,0,0,1,60.41,71.72L184.28,195.6A88,88,0,0,1,40,128Z"/>')),
       el('h2', { id: 'banned-title' }, 'Your account has been ', el('span', { class: 'serif' }, 'suspended')),
       el('p', {}, 'You can’t use Experiment AI with this account right now.'),
       ban?.reason && el('div', { class: 'banned-reason' }, el('small', {}, 'Reason'), el('p', {}, ban.reason)),
