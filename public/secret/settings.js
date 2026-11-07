@@ -140,6 +140,7 @@ async function loadUsage(force = false, card = false) {
 function renderPlanLabel() {
   if (!usageData) return;
   $('account-plan').textContent = `${PLAN_INFO[usageData.plan]?.name || 'Free'} plan`;
+  if (typeof renderWidgets === 'function') renderWidgets(); // the Usage widget on home
   renderUpgradeLabel();
   // the Usage button under the message bar: today's share of the daily limit
   const u = usageData;

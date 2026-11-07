@@ -93,7 +93,7 @@ function notice(text) {
 /* ── Preferences (Settings → Personalization): theme, text size, motion, send key, greetings, and what the AI
       knows about you. Kept here and in your account (settings.js syncs them); home.html applies the look early. ── */
 const PREF_DEFAULTS = {
-  theme: 'auto', textSize: 'default', reduceMotion: false, sendKey: 'enter', greetings: true,
+  theme: 'night', textSize: 'default', reduceMotion: false, sendKey: 'enter', greetings: true,
   nickname: '', about: '', instructions: '', style: 'balanced', language: '',
 };
 let prefs = { ...PREF_DEFAULTS };
@@ -218,6 +218,7 @@ document.addEventListener('pointerdown', (e) => {
 
 let seenChats = null; // chat ids already shown, so only new ones slide in
 function renderSidebar() {
+  if (typeof renderWidgets === 'function') renderWidgets(); // home widgets follow the sessions list (home.js)
   const sorted = [...chats].sort(SORTERS[sortMode]);
   $('sort-label').textContent = SORTS.find(([k]) => k === sortMode)[1];
   const isNew = (id) => seenChats && !seenChats.has(id);
@@ -281,6 +282,7 @@ function setChatting(on) {
   if (app.classList.contains('has-messages') === on) return;
   composer.classList.add('gliding');
   app.classList.toggle('has-messages', on);
+  if (!on && typeof renderWidgets === 'function') renderWidgets();
   clearTimeout(glideTimer);
   glideTimer = setTimeout(() => composer.classList.remove('gliding'), 750);
 }
