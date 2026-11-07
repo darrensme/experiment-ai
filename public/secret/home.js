@@ -81,7 +81,7 @@ function recentCard() {
   return card('w-recent', 'history', ['Recent ', sw('sessions')],
     shown.length
       ? el('ul', { class: 'w-list' }, shown.map((c) => el('li', {},
-          el('button', { type: 'button', class: 'w-session', onclick: () => openChat(c.id) },
+          el('button', { type: 'button', class: 'w-session', 'data-id': c.id, onclick: () => openChat(c.id) },
             el('strong', {}, c.title || 'New session'), el('small', {}, ago(c.updatedAt))))))
       : el('p', { class: 'w-empty' }, 'Your sessions show up here.'),
     list.length > 3 && el('button', { type: 'button', class: 'w-more', onclick: () => $('search-btn')?.click() }, `${list.length - 3} more`));
@@ -135,6 +135,8 @@ function monthCard() {
     stat('Messages', msgs(thisStart, Infinity), msgs(lastStart, thisStart)));
 }
 
+// This runs often (every sync and usage update), so only cards that really changed are replaced. Rebuilding them all
+// would blink the row and restart the gold on each refresh.
 let widgetsQueued = false;
 function renderWidgets() {
   if (widgetsQueued) return;
@@ -143,7 +145,19 @@ function renderWidgets() {
     widgetsQueued = false;
     if (app.classList.contains('has-messages')) return;
     const s = stats();
-    fill(widgetsEl, activityCard(s), recentCard(), usageCard(), modelsCard(s), monthCard());
+    const cards = [activityCard(s), recentCard(), usageCard(), modelsCard(s), monthCard()];
+    if (!widgetsEl.children.length) {
+      widgetsEl.classList.add('first'); // the cards pop in once, on first load
+      fill(widgetsEl, cards);
+      setTimeout(() => widgetsEl.classList.remove('first'), 700);
+    } else {
+      let changed = false;
+      cards.forEach((c, i) => {
+        const old = widgetsEl.children[i];
+        if (!c.isEqualNode(old)) { old.replaceWith(c); changed = true; }
+      });
+      if (changed) document.getAnimations().forEach((a) => { if (a.animationName === 'shimmer') a.startTime = 0; }); // new words join the others
+    }
     if (typeof usageData !== 'undefined' && !usageData && signedIn()) loadUsage().then(renderWidgets).catch(() => {});
   });
 }
