@@ -32,7 +32,7 @@ const TOOLS = ['google', 'notion', 'github', 'canva'];
 const EFFORTS = ['low', 'medium', 'high'];
 
 function cleanChat(c) {
-  if (!validId(c?.id)) throw new HttpError(400, 'That chat couldn’t be saved.');
+  if (!validId(c?.id)) throw new HttpError(400, 'That session couldn’t be saved.');
   const messages = list(c.messages, MESSAGE_LIMIT).map((m) => {
     const out = { role: m?.role === 'assistant' ? 'assistant' : 'user', text: str(m?.text ?? m?.content, CONTENT_MAX), at: num(m?.at, Date.now()) };
     if (typeof m?.model === 'string') out.model = str(m.model, 80);
@@ -143,7 +143,7 @@ export default handle(async (req, res) => {
     await fits(doc, 'chat');
     const ref = chats.doc(req.body.chat.id);
     if (!(await ref.get()).exists && (await chats.count().get()).data().count >= CHAT_LIMIT) {
-      throw new HttpError(409, `You have ${CHAT_LIMIT} saved chats. Delete some to save new ones.`);
+      throw new HttpError(409, `You have ${CHAT_LIMIT} saved sessions. Delete some to save new ones.`);
     }
     await ref.set(doc);
     return res.status(200).json({ saved: req.body.chat.id });
@@ -160,7 +160,7 @@ export default handle(async (req, res) => {
     return res.status(200).json({ rated: b.rating });
   }
   if (action === 'delete') {
-    if (!validId(req.body.id)) throw new HttpError(400, 'Unknown chat.');
+    if (!validId(req.body.id)) throw new HttpError(400, 'Unknown session.');
     await chats.doc(req.body.id).delete();
     return res.status(200).json({ deleted: true });
   }

@@ -286,7 +286,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 /* ── Once sign-in is known (called from app.js's setAccount) ── */
 async function afterSignIn() {
   if (!signedIn()) return;
-  syncFromAccount().then(() => pollVideos()).catch((err) => notice(`Couldn’t load your chats: ${err.message}`));
+  syncFromAccount().then(() => pollVideos()).catch((err) => notice(`Couldn’t load your sessions: ${err.message}`));
   try {
     const got = await api('/api/settings', { action: 'get' });
     const synced = {};
@@ -482,11 +482,11 @@ function renderAccount() {
       }))),
     ),
     group('Your data',
-      row('Export your data', 'Download your account, settings, plan, usage, chats and projects as a JSON file.', button('Export', (e) => busy(e.currentTarget, exportData))),
+      row('Export your data', 'Download your account, settings, plan, usage, sessions and projects as a JSON file.', button('Export', (e) => busy(e.currentTarget, exportData))),
     ),
     group('Danger zone',
       el('div', { class: 'set-row' },
-        el('div', { class: 'grow' }, el('strong', {}, 'Delete account'), el('small', {}, 'Deletes your account, settings, usage and saved chats for good. A paid plan is cancelled right away.')),
+        el('div', { class: 'grow' }, el('strong', {}, 'Delete account'), el('small', {}, 'Deletes your account, settings, usage and saved sessions for good. A paid plan is cancelled right away.')),
         button('Delete account', (e) => busy(e.currentTarget, deleteAccount), 'btn btn-sm btn-red')),
     ),
   );
@@ -535,7 +535,7 @@ async function exportData() {
 }
 
 async function deleteAccount() {
-  if (!confirm('Delete your Experiment AI account? Your settings, usage and saved chats are deleted for good, and a paid plan is cancelled right away.')) return;
+  if (!confirm('Delete your Experiment AI account? Your settings, usage and saved sessions are deleted for good, and a paid plan is cancelled right away.')) return;
   if ((prompt('To confirm, type DELETE') || '').trim().toUpperCase() !== 'DELETE') { notice('Account not deleted.'); return; }
   await api('/api/delete-account');
   try { Object.keys(localStorage).filter((k) => k.startsWith('ea.')).forEach((k) => localStorage.removeItem(k)); } catch {}
@@ -639,9 +639,9 @@ const PRICING = {
   free: { name: 'Free', tagline: 'A taste of what Experiment AI can do.', note: 'Limited usage',
     points: ['-**Limited models:** a selection of our AIs', 'Chat, write, code and deep research', 'Side-by-side answers', 'Works on every device'] },
   light: { name: 'Light', tagline: 'For everyday questions and quick help.', note: '5× the usage of Free',
-    points: ['**All models:** Grok, Claude, Gemini, ChatGPT & Meta Muse', 'Image generation', 'Upload files and photos', 'Memory across chats', 'Connect your tools'] },
+    points: ['**All models:** Grok, Claude, Gemini, ChatGPT & Meta Muse', 'Image generation', 'Upload files and photos', 'Memory across sessions', 'Connect your tools'] },
   pro: { name: 'Pro', tagline: 'For people who use it all day.', note: '2× the usage of Light',
-    points: ['Everything in Light, with **all models**', '**Top image models** in up to 4K', 'Projects: chats that share files and instructions', 'Priority at busy times'] },
+    points: ['Everything in Light, with **all models**', '**Top image models** in up to 4K', 'Projects: sessions that share files and instructions', 'Priority at busy times'] },
   max: { name: 'Max', tagline: 'For the work that never stops.', note: { '5x': '5× the usage of Pro', '10x': '10× the usage of Pro' },
     points: ['Everything in Pro, with **all models**', 'Video generation', 'Our highest limits', 'First access to new features', 'Highest priority, always'] },
 };
@@ -1090,7 +1090,7 @@ async function loadMemories(box) {
   const free = usageData && usageData.plan === 'free' && !usageData.unlimited;
   const field = el('input', { class: 'field', maxlength: '400', placeholder: 'Add something to remember, e.g. I’m learning Spanish' });
   const draw = () => fill(box,
-    free && el('p', { class: 'set-empty-row' }, 'Memory comes with Light and up. You can still add things here; chats will use them once you upgrade.'),
+    free && el('p', { class: 'set-empty-row' }, 'Memory comes with Light and up. You can still add things here; sessions will use them once you upgrade.'),
     list.length
       ? el('ul', { class: 'memory-list' }, list.map((m) => el('li', {},
           el('span', {}, m.text),
@@ -1098,7 +1098,7 @@ async function loadMemories(box) {
             type: 'button', class: 'chip-x', 'aria-label': `Forget “${m.text}”`, title: 'Forget this',
             onclick: (e) => busy(e.currentTarget, () => store(list.filter((x) => x.id !== m.id), 'Forgotten')),
           }, icon('x')))))
-      : el('p', { class: 'set-empty-row' }, 'Nothing yet. With Memory on in a chat (the + menu), Experiment AI saves useful things you tell it, like your name, your projects or how you like answers.'),
+      : el('p', { class: 'set-empty-row' }, 'Nothing yet. With Memory on in a session (the + menu), Experiment AI saves useful things you tell it, like your name, your projects or how you like answers.'),
     el('form', {
       class: 'memory-add',
       onsubmit: (e) => {
@@ -1181,7 +1181,7 @@ async function renderAdmin(more = false) {
 let feedbackFilter = 'all';
 async function renderAdminFeedback(data = null) {
   const back = el('button', { type: 'button', class: 'back', onclick: () => renderAdmin() }, icon('back'), 'All accounts');
-  const top = [back, head('Reply feedback', 'Thumbs up and down on replies. Incognito chats never send any.')];
+  const top = [back, head('Reply feedback', 'Thumbs up and down on replies. Incognito sessions never send any.')];
   if (!data) {
     fill(settingsBody, top, loading());
     try { data = await api('/api/settings', { action: 'admin-feedback' }); } catch (err) { fill(settingsBody, top, failed(err, () => renderAdminFeedback())); return; }
@@ -1244,7 +1244,7 @@ async function renderAdminUser(uid, given = null) {
       row('User ID', u.uid, button('Copy', () => navigator.clipboard?.writeText(u.uid).then(() => notice('Copied')))),
       row('Joined', `${fmtDay(u.created)} · last signed in ${fmtDay(u.lastSignIn)}`),
       row('Signs in with', (u.providers || []).map((p) => (p === 'google.com' ? 'Google' : p === 'password' ? 'Email and password' : p)).join(', ') || '—'),
-      row('Saved chats', String(u.chats ?? '—'))),
+      row('Saved sessions', String(u.chats ?? '—'))),
     group('Plan',
       row('Plan', u.status ? `Stripe: ${PLAN_INFO[u.stripePlan]?.name || 'Free'} (${u.status}${u.cancelAtPeriodEnd ? ', cancelled' : ''}${u.periodEnd ? `, until ${fmtDate(u.periodEnd)}` : ''})` : 'No Stripe subscription', override),
       row('Unlimited', u.unlimitedBuiltIn ? 'Always on for this account.' : 'No limits and every model, whatever the plan.',
@@ -1301,7 +1301,7 @@ function adminDeleteBox(u) {
         });
       },
     },
-      el('p', { class: 'admin-delete-note' }, 'Deletes their chats, projects, Memory, files, connected services, usage and sign-in for good, and cancels a paid plan in Stripe right away. This can’t be undone.'),
+      el('p', { class: 'admin-delete-note' }, 'Deletes their sessions, projects, Memory, files, connected services, usage and sign-in for good, and cancels a paid plan in Stripe right away. This can’t be undone.'),
       confirmField,
       el('div', { class: 'form-actions' }, go)),
   ];
@@ -1310,7 +1310,7 @@ const PLANS_ALL = ['free', 'light', 'pro', 'max-5x', 'max-10x'];
 
 /* ───────── Connectors (api/connectors.js; each tool's sign-in comes back to /api/connect/<tool>/callback) ───────── */
 async function renderConnectors() {
-  const top = head('Connectors', 'Let Experiment AI use your other tools. Connect once and it works in every chat.');
+  const top = head('Connectors', 'Let Experiment AI use your other tools. Connect once and it works in every session.');
   fill(settingsBody, top, loading());
   if (!signedIn()) { fill(settingsBody, top, el('div', { class: 'set-empty' }, el('p', {}, 'Sign in to connect your tools.'))); return; }
   let list;

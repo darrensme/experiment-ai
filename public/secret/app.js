@@ -112,7 +112,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyPrefs
 
 /* ── Connectors (Settings → Connectors connects them; the + menu turns them on for a chat) ── */
 const CONNECTORS = [
-  { id: 'google', name: 'Google Drive', logo: '/assets/tools/google-drive.svg', note: 'Pick files from your Drive to use in chats' },
+  { id: 'google', name: 'Google Drive', logo: '/assets/tools/google-drive.svg', note: 'Pick files from your Drive to use in sessions' },
   { id: 'notion', name: 'Notion', logo: '/assets/tools/notion.svg', note: 'Search and read the pages you share' },
   { id: 'github', name: 'GitHub', logo: '/assets/tools/github.svg', note: 'Read code, issues and pull requests' },
   { id: 'canva', name: 'Canva', logo: '/assets/tools/canva.svg', note: 'Find and create designs' },
@@ -175,8 +175,8 @@ $('scrim').addEventListener('click', () => setSidebar(false));
 /* ── Sort chats (Recent / Newest / Oldest / A–Z), remembered ── */
 const SORTS = [
   ['recent', 'Recent', 'Last active first'],
-  ['newest', 'Newest', 'Newest chats first'],
-  ['oldest', 'Oldest', 'Oldest chats first'],
+  ['newest', 'Newest', 'Newest sessions first'],
+  ['oldest', 'Oldest', 'Oldest sessions first'],
   ['az', 'A–Z', 'By name'],
 ];
 const SORTERS = {
@@ -225,7 +225,7 @@ function renderSidebar() {
   const isNew = (id) => seenChats && !seenChats.has(id);
   $('chat-list').replaceChildren(...sorted.map((c) => el('li', { class: isNew(c.id) ? 'new' : null },
     el('button', { type: 'button', class: 'chat-item', title: c.title, 'aria-current': c.id === currentId ? 'page' : null, onclick: () => openChat(c.id) }, c.title),
-    el('button', { type: 'button', class: 'chat-del', 'aria-label': `Delete “${c.title}”`, title: 'Delete chat', onclick: () => deleteChat(c.id) }, icon('x')),
+    el('button', { type: 'button', class: 'chat-del', 'aria-label': `Delete “${c.title}”`, title: 'Delete session', onclick: () => deleteChat(c.id) }, icon('x')),
   )));
   $('chats-empty').hidden = chats.length > 0;
   seenChats = new Set(chats.map((c) => c.id));
@@ -333,13 +333,13 @@ $('new-chat').addEventListener('click', () => goHome());
 ICONS.incog = '<path d="M3.5 11h17"/><path d="M6 11l1.6-5.2a1.5 1.5 0 0 1 2-1L12 5.6l2.4-.8a1.5 1.5 0 0 1 2 1L18 11"/><circle cx="8" cy="16" r="2.6"/><circle cx="16" cy="16" r="2.6"/><path d="M10.6 16h2.8"/>';
 const incogIcon = () => icon('incog');
 // a quiet note under the message bar, between the model and Usage
-const incogBar = el('div', { class: 'incog-bar', role: 'status', hidden: true, title: 'This chat isn’t saved and memory is off. It’s gone when you leave.' },
+const incogBar = el('div', { class: 'incog-bar', role: 'status', hidden: true, title: 'This session isn’t saved and memory is off. It’s gone when you leave.' },
   incogIcon(), el('strong', {}, 'Incognito'), el('span', { class: 'incog-more' }, '· not saved, memory off'));
 composer.append(incogBar);
 // a small round button in the top-right corner
 app.append(el('button', {
-  type: 'button', class: 'incog-corner', id: 'incog-btn', 'aria-pressed': 'false', 'aria-label': 'Incognito chat',
-  title: 'Incognito chat: not saved, memory off', onclick: () => goHome({ incognito: !(incog || draft.incognito) }),
+  type: 'button', class: 'incog-corner', id: 'incog-btn', 'aria-pressed': 'false', 'aria-label': 'Incognito session',
+  title: 'Incognito session: not saved, memory off', onclick: () => goHome({ incognito: !(incog || draft.incognito) }),
 }, incogIcon()));
 
 // Images and videos the AI made (stored in Blob); "?download=1" makes Blob send it as a download
@@ -651,17 +651,17 @@ function renderChips() {
     items.push(chip('pair', `Side by side · ${pairWith.id === choice.model ? 'pick another model' : `vs ${pairWith.name}`}`, 'Turn off side by side', () => setCompare(null), 'chip-pair'));
   }
   if (project) {
-    items.push(chip('folder', project.name, `Take this chat out of ${project.name}`, () => { s.projectId = null; persistSettings(); }, 'chip-project'));
+    items.push(chip('folder', project.name, `Take this session out of ${project.name}`, () => { s.projectId = null; persistSettings(); }, 'chip-project'));
   }
   if (!s.memory && !s.incognito) {
-    items.push(chip(null, 'Memory off', 'Save this chat to memory again', () => { s.memory = true; persistSettings(); }, 'chip-memory'));
+    items.push(chip(null, 'Memory off', 'Save this session to memory again', () => { s.memory = true; persistSettings(); }, 'chip-memory'));
   }
   // connectors switched on for this chat (only ones still connected, once we know)
   (s.tools || []).forEach((t) => {
     const c = CONNECTORS.find((x) => x.id === t);
     const st = connectorList?.find((x) => x.tool === t);
     if (!c || (st && !st.connected)) return;
-    items.push(chip(el('img', { src: c.logo, alt: '', width: '14', height: '14' }), c.name, `Stop using ${c.name} in this chat`,
+    items.push(chip(el('img', { src: c.logo, alt: '', width: '14', height: '14' }), c.name, `Stop using ${c.name} in this session`,
       () => { s.tools = s.tools.filter((x) => x !== t); persistSettings(); }, 'chip-tool'));
   });
   attachments.forEach((a, i) => items.push(chip(
@@ -682,7 +682,7 @@ function renderChips() {
 function titleFor(text, atts) {
   const t = norm(text.split('\n')[0]);
   if (t) return t.length > 48 ? t.slice(0, 47) + '…' : t;
-  return atts[0]?.name || 'New chat';
+  return atts[0]?.name || 'New session';
 }
 
 composer.addEventListener('submit', (e) => {
@@ -1270,7 +1270,7 @@ function renderMenuTools() {
         logo,
         el('span', { class: 'grow' }, el('strong', {}, c.name), st.account && el('small', {}, st.account)),
         el('input', {
-          type: 'checkbox', class: 'toggle', role: 'switch', 'aria-label': `Use ${c.name} in this chat`, checked: on.includes(c.id),
+          type: 'checkbox', class: 'toggle', role: 'switch', 'aria-label': `Use ${c.name} in this session`, checked: on.includes(c.id),
           onchange: (e) => {
             s.tools = e.target.checked ? [...new Set([...on, c.id])] : on.filter((t) => t !== c.id);
             persistSettings();
@@ -1487,8 +1487,8 @@ function renderList() {
           el('button', { type: 'button', class: 'proj-card', onclick: () => showView('detail', p.id) },
             el('div', { class: 'proj-name' }, p.name),
             p.description && el('div', { class: 'proj-desc' }, p.description),
-            el('div', { class: 'proj-meta' }, `${plural(chatsIn(p.id).length, 'chat')} · ${plural(p.files.length, 'file')}`)))))
-      : el('p', { class: 'panel-empty' }, 'No projects yet. A project keeps related chats and files together.'),
+            el('div', { class: 'proj-meta' }, `${plural(chatsIn(p.id).length, 'session')} · ${plural(p.files.length, 'file')}`)))))
+      : el('p', { class: 'panel-empty' }, 'No projects yet. A project keeps related sessions and files together.'),
   );
 }
 
@@ -1533,7 +1533,7 @@ function renderDetail(p) {
     el('button', {
       type: 'button', class: 'btn btn-block',
       onclick: () => { goHome({ projectId: p.id }); if (phone.matches) closeProjects(); },
-    }, icon('plus'), 'New chat in this project'),
+    }, icon('plus'), 'New session in this project'),
 
     el('div', { class: 'section-head' },
       el('h4', {}, `Files · ${p.files.length}`),
@@ -1551,13 +1551,13 @@ function renderDetail(p) {
               onclick: () => { p.files = p.files.filter((x) => x !== f); saveProjects(); renderProjects(); },
             }, icon('x')))),
           p.files.length > shown.length && el('li', { class: 'muted' }, `+ ${p.files.length - shown.length} more`))
-      : el('p', { class: 'muted' }, 'No files yet. Files you attach in this project’s chats are added here too.'),
+      : el('p', { class: 'muted' }, 'No files yet. Files you attach in this project’s sessions are added here too.'),
 
-    el('div', { class: 'section-head' }, el('h4', {}, `Chats · ${pchats.length}`)),
+    el('div', { class: 'section-head' }, el('h4', {}, `Sessions · ${pchats.length}`)),
     pchats.length
       ? el('ul', { class: 'proj-chats' }, pchats.map((c) => el('li', {},
           el('button', { type: 'button', class: 'chat-item', title: c.title, 'aria-current': c.id === currentId ? 'page' : null, onclick: () => openChat(c.id) }, c.title))))
-      : el('p', { class: 'muted' }, 'No chats yet.'),
+      : el('p', { class: 'muted' }, 'No sessions yet.'),
 
     el('button', { type: 'button', class: 'btn btn-danger', onclick: () => deleteProject(p.id) }, 'Delete project'),
   );
@@ -1565,7 +1565,7 @@ function renderDetail(p) {
 
 function deleteProject(id) {
   const p = projectById(id);
-  if (!p || !confirm(`Delete the project “${p.name}”? Its chats are kept, just without the project.`)) return;
+  if (!p || !confirm(`Delete the project “${p.name}”? Its sessions are kept, just without the project.`)) return;
   projects = projects.filter((x) => x.id !== id);
   saveProjects();
   chats.forEach((c) => { if (c.projectId === id) c.projectId = null; });
@@ -1640,11 +1640,11 @@ function runSearch() {
   active = 0;
   if (!results.length) {
     searchResults.replaceChildren(el('li', { class: 'search-empty' },
-      chats.length ? `Nothing found for “${norm(searchInput.value)}”` : 'No chats yet. Start one and it will show up here.'));
+      chats.length ? `Nothing found for “${norm(searchInput.value)}”` : 'No sessions yet. Start one and it will show up here.'));
     return;
   }
   fill(searchResults,
-    !q && el('li', { class: 'search-head' }, 'Recent chats'),
+    !q && el('li', { class: 'search-head' }, 'Recent sessions'),
     ...results.map((r, i) => el('li', {},
       el('button', {
         type: 'button', class: 'result',
