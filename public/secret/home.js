@@ -31,6 +31,7 @@ function ago(t) {
   if (days < 365) return `${Math.floor(days / 30)} months ago`;
   return days < 730 ? 'last year' : `${Math.floor(days / 365)} years ago`;
 }
+const sw = (word) => el('span', { class: 'serif' }, word); // an Instrument Serif word in a title
 const card = (cls, iconName, title, ...body) => el('article', { class: `w-card ${cls}` },
   el('h3', { class: 'w-head' }, icon(iconName), title), body);
 
@@ -66,7 +67,7 @@ function activityCard(s) {
   const grid = el('div', { class: 'act-grid', style: `--weeks:${WEEKS}`, role: 'img', 'aria-label': `Messages sent per day over the last ${WEEKS} weeks` },
     counts.map((x) => (x ? el('i', { class: `lv${level(x.n)}`, title: `${x.n} message${x.n === 1 ? '' : 's'} on ${fmtDay(x.t)}` }) : el('i', { class: 'future' }))));
   const fav = s.top[0] && modelById(s.top[0][0]);
-  return card('w-activity', 'grid', 'Activity', grid,
+  return card('w-activity', 'grid', ['Your ', sw('activity')], grid,
     el('div', { class: 'w-foot' },
       el('span', {}, `${chats.length.toLocaleString()} session${chats.length === 1 ? '' : 's'} · ${s.messages.toLocaleString()} message${s.messages === 1 ? '' : 's'}`,
         fav && el('span', { class: 'act-fav' }, ' · Most used: ', el('img', { src: BRANDS[fav.brand].logo, alt: '', width: '14', height: '14' }), fav.name)),
@@ -76,7 +77,7 @@ function activityCard(s) {
 function recentCard() {
   const list = [...chats].sort((a, b) => b.updatedAt - a.updatedAt);
   const shown = list.slice(0, 3);
-  return card('w-recent', 'history', 'Recent sessions',
+  return card('w-recent', 'history', ['Recent ', sw('sessions')],
     shown.length
       ? el('ul', { class: 'w-list' }, shown.map((c) => el('li', {},
           el('button', { type: 'button', class: 'w-session', onclick: () => openChat(c.id) },
@@ -99,12 +100,12 @@ function usageCard() {
       el('small', { class: 'w-dim' }, `${week}% of this week · ${PLAN_INFO[u.plan]?.name || 'Free'} plan`));
   }
   return el('button', { type: 'button', class: 'w-card w-usage w-click', onclick: () => openSettings('usage') },
-    el('h3', { class: 'w-head' }, icon('gauge'), 'Usage'), body);
+    el('h3', { class: 'w-head' }, icon('gauge'), 'Your ', sw('usage')), body);
 }
 
 function modelsCard(s) {
   const top = s.top.slice(0, 3);
-  return card('w-models', 'spark', 'Top models',
+  return card('w-models', 'spark', ['Top ', sw('models')],
     top.length
       ? el('ul', { class: 'w-list w-bars' }, top.map(([id, n]) => {
           const m = modelById(id);
@@ -128,7 +129,7 @@ function monthCard() {
     return el('div', { class: 'w-stat' }, el('small', {}, label),
       el('p', {}, el('b', {}, now.toLocaleString()), diff !== 0 && el('span', { class: diff > 0 ? 'up' : 'down' }, `${diff > 0 ? '+' : '−'}${Math.abs(diff).toLocaleString()}`)));
   };
-  return card('w-month', 'cal', 'This month',
+  return card('w-month', 'cal', ['This ', sw('month')],
     stat('Sessions', sessions(thisStart, Infinity), sessions(lastStart, thisStart)),
     stat('Messages', msgs(thisStart, Infinity), msgs(lastStart, thisStart)));
 }
@@ -161,15 +162,17 @@ async function openVoice() {
   if (modelById(choice.model)?.kind !== 'chat') { notice('Voice mode works with chat models. Pick one under the message bar first.'); return; }
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); } catch { notice('Allow microphone access to use voice mode.'); return; }
-  const orb = el('canvas', { class: 'voice-orb', width: '240', height: '240', 'aria-hidden': 'true' });
+  const orb = el('canvas', { class: 'voice-orb', width: '360', height: '360', 'aria-hidden': 'true' });
   const status = el('p', { class: 'voice-status', role: 'status' }, 'Starting…');
+  const title = el('h2', { class: 'voice-title' }, 'Just ', sw('talk'), '.');
   const heard = el('p', { class: 'voice-heard' });
   const said = el('p', { class: 'voice-said' });
   const muteBtn = el('button', { type: 'button', class: 'voice-ctl', 'aria-pressed': 'false', title: 'Mute the mic' }, icon('micoff'));
   const endBtn = el('button', { type: 'button', class: 'voice-ctl voice-end', title: 'End voice mode' }, icon('x'));
   const layer = el('div', { class: 'voice-layer', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Voice mode' },
     el('div', { class: 'voice-card' },
-      el('div', { class: 'voice-top' }, el('img', { src: '/assets/potion-orb-pfp-sky-bottle.png', alt: '', width: '22', height: '22' }), el('strong', {}, 'Voice mode'), el('span', { class: 'voice-beta' }, 'Beta')),
+      el('div', { class: 'voice-top' }, el('img', { src: '/assets/potion-orb-pfp-sky-bottle.png', alt: '', width: '22', height: '22' }), el('strong', {}, 'Voice ', sw('mode')), el('span', { class: 'voice-beta' }, 'Beta')),
+      title,
       el('button', { type: 'button', class: 'voice-orb-btn', title: 'Tap to talk now', onclick: () => voice && interrupt() }, orb),
       status, heard, said,
       el('div', { class: 'voice-ctls' }, muteBtn, endBtn),
@@ -214,7 +217,7 @@ function drawOrb() {
   g.clearRect(0, 0, S, S);
   const t = performance.now() / 1000;
   const swell = voice.state === 'listening' ? voice.level * 26 : voice.state === 'speaking' ? 8 + Math.sin(t * 6) * 6 : voice.state === 'thinking' ? 4 + Math.sin(t * 3) * 4 : 0;
-  const R = 70 + swell;
+  const R = S * 0.3 + swell * 1.4;
   for (let y = 4; y < S; y += 6) {
     for (let x = 4; x < S; x += 6) {
       const d = Math.hypot(x - S / 2, y - S / 2);

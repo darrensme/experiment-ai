@@ -8,7 +8,8 @@
     night: { base: [5, 7, 12], dots: ['#0a1222', '#0d1c3c', '#11295c', '#163a86', '#1d50b4', '#2a6fe0', '#4d93ff', '#8fc0ff', '#d6eaff', '#f4faff'] },
     // light: near-white paper; the streak is pale sky at its edges, vivid cobalt in its body and a white-hot highlight
     // in its core, so it still reads as light (not a dark smear)
-    light: { base: [244, 247, 252], dots: ['#dde7f6', '#c6d7f2', '#a8c3ee', '#86aae8', '#628fe2', '#4479dc', '#3a70dd', '#4f86ea', '#8db8f7', '#e3f0ff'], boost: 1.1 },
+    // mostly white: a thinner streak, paler dots, almost no speckle
+    light: { base: [251, 252, 255], dots: ['#edf2fa', '#e0e8f6', '#cddbf3', '#b4c9ef', '#94b3ea', '#759de5', '#5d8ce2', '#78a3ee', '#b2d0f9', '#f3f8ff'], boost: 0.78, width: 0.62, speckle: 0.025 },
   };
   const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
   const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
@@ -48,7 +49,8 @@
     const len = Math.hypot(1, slope);
     const tx = 1 / len; const ty = slope / len; // along the line
     const nx = -slope / len; const ny = 1 / len; // across it (positive = below)
-    const width = Math.max(W, H) * 0.15;
+    const width = Math.max(W, H) * 0.15 * (pal.width || 1);
+    const speckle = pal.speckle ?? 0.1;
     const top = dots.length - 1;
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
@@ -59,7 +61,7 @@
         const w = d < 0 ? width * 1.5 : width * 0.62;
         let v = Math.exp(-(d * d) / (w * w));
         v *= 0.45 + 1.0 * fbm(t / 210, d / 55 + 7.3); // wisps along the streak
-        v += 0.1 * fbm(x / 70 + 3, y / 70) - 0.02; // faint speckle everywhere
+        v += speckle * fbm(x / 70 + 3, y / 70) - 0.02; // faint speckle everywhere
         if (pal.boost) v *= pal.boost; // light paper needs more ink to show the streak
         if (v <= 0) continue;
         if (v > 1) v = 1;
