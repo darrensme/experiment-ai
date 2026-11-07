@@ -1,4 +1,4 @@
-// Home screen widgets (Activity, Recent sessions, Usage, Top models, This month) and Voice mode (beta).
+// Home screen widgets (Activity, Recent sessions, Usage, Top models, This month), Report a bug and Voice mode (beta).
 // Plain script, loaded after app.js and settings.js, sharing their globals (chats, el, icon, usageData, openChat …).
 
 Object.assign(ICONS, {
@@ -8,6 +8,7 @@ Object.assign(ICONS, {
   cal: '<path d="M8 2v4" /><path d="M16 2v4" /><rect width="18" height="18" x="3" y="4" rx="2" /><path d="M3 10h18" />',
   trophy: '<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" /><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" /><path d="M4 22h16" /><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" /><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" /><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />',
   wave: '<path d="M2 10v3" /><path d="M6 6v11" /><path d="M10 3v18" /><path d="M14 8v7" /><path d="M18 5v13" /><path d="M22 10v3" />',
+  bug: '<path d="m8 2 1.88 1.88" /><path d="M14.12 3.88 16 2" /><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1" /><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6" /><path d="M12 20v-9" /><path d="M6.53 9C4.6 8.8 3 7.1 3 5" /><path d="M6 13H2" /><path d="M3 21c0-2.1 1.7-3.9 3.8-4" /><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4" /><path d="M22 13h-4" /><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4" />',
   micoff: '<line x1="2" x2="22" y1="2" y2="22" /><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2" /><path d="M5 10v2a7 7 0 0 0 12 5" /><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33" /><path d="M9 9v3a3 3 0 0 0 5.12 2.12" /><line x1="12" x2="12" y1="19" y2="22" />',
 });
 
@@ -148,6 +149,54 @@ function renderWidgets() {
 }
 renderWidgets();
 addEventListener('resize', () => { if (!app.classList.contains('has-messages')) renderWidgets(); });
+
+// the bar is taller on home than in a session: keep --ch right whenever its height changes
+new ResizeObserver(() => app.style.setProperty('--ch', `${composer.offsetHeight}px`)).observe(composer);
+
+/* ───────── Report a bug ─────────
+   Saved through api/chats 'bug'; admins read them in Settings › Admin › Bug reports. Session content is never attached. */
+document.querySelector('.main').append(
+  el('button', { type: 'button', class: 'bug-btn', id: 'bug-btn', title: 'Report a bug', 'aria-label': 'Report a bug', onclick: openBugReport }, icon('bug'), el('span', {}, 'Report a bug')));
+
+function openBugReport() {
+  if (!signedIn()) { notice('Sign in to report a bug.'); return; }
+  const text = el('textarea', { class: 'field', id: 'bug-text', rows: '5', maxlength: '2000', required: true, placeholder: 'What did you do, what happened, and what did you expect?' });
+  const error = el('p', { class: 'bug-error', role: 'alert', hidden: true });
+  const submit = el('button', { type: 'submit', class: 'btn' }, 'Send report');
+  const dialog = el('dialog', {
+    class: 'bug-dialog', 'aria-labelledby': 'bug-title',
+    onclose: () => dialog.remove(),
+    onclick: (e) => { if (e.target === dialog && !text.value.trim()) dialog.close(); }, // a click outside, unless they've typed something
+  }, el('form', {
+    class: 'form',
+    onsubmit: async (e) => {
+      e.preventDefault();
+      const body = text.value.trim();
+      if (!body) { text.focus(); return; }
+      submit.disabled = true;
+      error.hidden = true;
+      try {
+        await api('/api/chats', { action: 'bug', text: body, model: choice.model, screen: `${innerWidth}×${innerHeight}`, inSession: Boolean(current()) });
+        dialog.close();
+        notice('Thanks. Your bug report was sent.');
+      } catch (err) {
+        error.textContent = err.message;
+        error.hidden = false;
+        submit.disabled = false;
+      }
+    },
+  },
+    el('h2', { id: 'bug-title' }, 'Report a ', sw('bug')),
+    el('label', { class: 'field-label', for: 'bug-text' }, 'What went wrong?'), text,
+    el('p', { class: 'bug-note' }, 'We also get your email, browser, screen size and selected model, so we can look into it. Nothing from your sessions is sent unless you type it here.'),
+    error,
+    el('div', { class: 'form-actions' },
+      el('button', { type: 'button', class: 'btn btn-ghost', onclick: () => dialog.close() }, 'Cancel'),
+      submit)));
+  document.body.append(dialog);
+  dialog.showModal();
+  text.focus();
+}
 
 /* ───────── Voice mode (beta) ─────────
    Listen (the mic, with a simple silence detector) → turn speech into text (api/chat 'transcribe', like dictation)

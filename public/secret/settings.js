@@ -1150,7 +1150,7 @@ const avatarOf = (u) => el('img', { class: 'avatar', src: u.photo || '/assets/po
 
 async function renderAdmin(more = false) {
   const top = [head('Admin', 'Find an account to ban it, change its plan, let it into the app or reset its usage.'),
-    el('div', { class: 'admin-tools' }, button('Reply feedback', () => renderAdminFeedback(), 'btn btn-ghost btn-sm'))];
+    el('div', { class: 'admin-tools' }, button('Reply feedback', () => renderAdminFeedback(), 'btn btn-ghost btn-sm'), button('Bug reports', () => renderAdminBugs(), 'btn btn-ghost btn-sm'))];
   const q = el('input', { class: 'field', type: 'search', placeholder: 'Email, name or user ID', value: adminState.query });
   const list = el('div', { class: 'set-group admin-list' }, loading());
   fill(settingsBody, top,
@@ -1214,6 +1214,33 @@ async function renderAdminFeedback(data = null) {
             el('p', { class: 'fb-reply' }, f.reply || '(no text)'),
             el('small', {}, `${f.email || f.uid} · ${fmtDay(f.ratedAt)}`)))))
       : el('div', { class: 'set-group' }, el('p', { class: 'set-empty-row' }, feedbackFilter === 'down' ? 'No thumbs down. Nice.' : 'No ratings yet.')));
+}
+
+// Bug reports people sent with the button at the top of the app, newest first
+async function renderAdminBugs(items = null) {
+  const back = el('button', { type: 'button', class: 'back', onclick: () => renderAdmin() }, icon('back'), 'All accounts');
+  const top = [back, head('Bug reports', 'What people reported with the Report a bug button. Delete one once it’s dealt with.')];
+  if (!items) {
+    fill(settingsBody, top, loading());
+    try { items = (await api('/api/settings', { action: 'admin-bugs' })).items; } catch (err) { fill(settingsBody, top, failed(err, () => renderAdminBugs())); return; }
+    if (settingsTab !== 'admin') return;
+  }
+  const remove = async (b) => {
+    try {
+      await api('/api/settings', { action: 'admin-bug-delete', id: b.id });
+      renderAdminBugs(items.filter((x) => x.id !== b.id));
+    } catch (err) { notice(err.message); }
+  };
+  fill(settingsBody, top,
+    el('div', { class: 'set-group' }, items.length
+      ? items.map((b) => el('div', { class: 'set-row fb-item' },
+          icon('bug'),
+          el('div', { class: 'grow' },
+            el('p', { class: 'bug-text' }, b.text),
+            el('small', {}, `${b.email || b.uid} · ${fmtDay(b.at)} · ${modelById(b.model)?.name || b.model || 'Unknown model'} · ${b.screen || 'unknown size'} · ${b.inSession ? 'in a session' : 'on home'}`),
+            el('small', {}, b.browser || 'Unknown browser')),
+          button('Delete', () => remove(b))))
+      : el('p', { class: 'set-empty-row' }, 'No bug reports.')));
 }
 
 async function renderAdminUser(uid, given = null) {

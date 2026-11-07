@@ -6,6 +6,7 @@
 //   delete { id }             → { deleted: true }
 //   project-save { project }  → creates or replaces one project → { saved: id }
 //   project-delete { id }     → { deleted: true }
+//   bug { text, model, screen, inSession } → { sent: true }: saves a bug report to bugReports/ for admins
 // Chats live at profiles/{uid}/chats/{id}, projects at profiles/{uid}/projects/{id}.
 // POST /api/chats?upload=1&name=…&type=… with the file as the body → { url, type, size }: saves a file to attach to a
 // message (Vercel Blob; up to 4 MB; the app shrinks big photos first).
@@ -19,6 +20,8 @@ const MESSAGE_LIMIT = 500; // messages per chat
 const CONTENT_MAX = 100_000; // characters per message
 const DOC_MAX = 900_000; // characters per document (Firestore's limit is 1 MiB)
 const PAGE = 40;
+const BUG_MAX = 2000; // characters per bug report
+const BUG_DAILY = 20; // bug reports per person per day
 
 export const chatsOf = (uid) => db().collection('profiles').doc(uid).collection('chats');
 const projectsOf = (uid) => db().collection('profiles').doc(uid).collection('projects');
@@ -161,6 +164,23 @@ export default handle(async (req, res) => {
       uid: user.uid, email: user.email || null, rating: b.rating, model: str(b.model, 80), reply: str(b.reply, 400), ratedAt: Date.now(),
     });
     return res.status(200).json({ rated: b.rating });
+  }
+  // the Report a bug button: kept for admins (Settings › Admin › Bug reports)
+  if (action === 'bug') {
+    const b = req.body || {};
+    const text = str(b.text, BUG_MAX).trim();
+    if (!text) throw new HttpError(400, 'Tell us what went wrong first.');
+    const reports = db().collection('bugReports');
+    const now = Date.now();
+    const mine = await reports.where('uid', '==', user.uid).select('at').get();
+    if (mine.docs.filter((d) => d.data().at > now - 86_400_000).length >= BUG_DAILY) {
+      throw new HttpError(429, 'You’ve sent a lot of reports today. Please try again tomorrow.');
+    }
+    await reports.add({
+      uid: user.uid, email: user.email || null, text, model: str(b.model, 80), screen: str(b.screen, 20), inSession: b.inSession === true,
+      browser: str(req.headers?.['user-agent'], 300), at: now,
+    });
+    return res.status(200).json({ sent: true });
   }
   if (action === 'delete') {
     if (!validId(req.body.id)) throw new HttpError(400, 'Unknown session.');

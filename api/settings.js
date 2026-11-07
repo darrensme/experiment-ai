@@ -13,6 +13,8 @@
 //   admin-unlimited { uid, on }           → no limits, every model
 //   admin-access { uid, on }              → let them into the app
 //   admin-reset-usage { uid }             → today and this week back to 0
+//   admin-bugs                            → { items }: bug reports, newest first
+//   admin-bug-delete { id }               → { deleted: true }
 //   admin-delete { uid, confirm: email }  → deletes the account and everything stored for it (see _account.js)
 import { HttpError, auth, db, handle, requireUser } from './_shared.js';
 import {
@@ -62,6 +64,17 @@ async function adminAction(user, action, body) {
       models[f.model][f.rating === 'up' ? 'up' : 'down']++;
     }
     return { items, models };
+  }
+  // the Report a bug button (api/chats.js 'bug'): the newest 200
+  if (action === 'admin-bugs') {
+    const snap = await store.collection('bugReports').orderBy('at', 'desc').limit(200).get();
+    return { items: snap.docs.map((d) => ({ id: d.id, ...d.data() })) };
+  }
+  if (action === 'admin-bug-delete') {
+    if (typeof body.id !== 'string' || !/^[A-Za-z0-9]{1,64}$/.test(body.id)) throw new HttpError(400, 'Unknown report.');
+    await store.collection('bugReports').doc(body.id).delete();
+    console.log('admin', action, body.id, 'by', user.email);
+    return { deleted: true };
   }
   if (action === 'admin-users') {
     const q = String(body.query || '').trim();

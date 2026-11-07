@@ -1248,7 +1248,7 @@ function openMenu() {
 // open below the bar if it fits, otherwise above (whichever side has more room), and never off-screen
 function placeMenu(menu, cap = Infinity) {
   const r = composer.getBoundingClientRect();
-  const below = window.innerHeight - r.bottom - 16 - 28; // 28 = the model text under the bar
+  const below = window.innerHeight - r.bottom - 16;
   const above = r.top - 16;
   menu.style.maxHeight = '';
   const h = Math.min(menu.scrollHeight, cap);

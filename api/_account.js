@@ -1,7 +1,8 @@
 // Deleting an account and everything stored for it: used by api/delete-account.js (you, from Settings › Account) and by
 // the admin panel (api/settings.js 'admin-delete'). Cancels a paid subscription in Stripe right away (so they're never
 // charged again), then deletes their files and media (Vercel Blob), waitlist entry, email code, plan, usage, app access,
-// ban record, settings, Memory, chats, projects, connected services, video jobs, and the Firebase account itself.
+// ban record, reply feedback, bug reports, settings, Memory, chats, projects, connected services, video jobs, and the
+// Firebase account itself.
 import { auth, db } from './_shared.js';
 import { stripe } from './_stripe.js';
 import { deleteUserFiles } from './_media.js';
@@ -17,7 +18,13 @@ export async function deleteAccount(uid) {
       if (err?.statusCode !== 404) throw err; // already gone in Stripe is fine
     });
   }
+  const deleteTheirs = async (name) => {
+    const snap = await store.collection(name).where('uid', '==', uid).get();
+    await Promise.all(snap.docs.map((d) => d.ref.delete()));
+  };
   await Promise.all([
+    deleteTheirs('feedback'),
+    deleteTheirs('bugReports'),
     store.collection('waitlist').doc(uid).delete(),
     store.collection('emailCodes').doc(uid).delete(),
     store.collection('plans').doc(uid).delete(),
