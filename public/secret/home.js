@@ -6,7 +6,7 @@ Object.assign(ICONS, {
   history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l4 2" />',
   gauge: '<path d="m12 14 4-4" /><path d="M3.34 19a10 10 0 1 1 17.32 0" />',
   cal: '<path d="M8 2v4" /><path d="M16 2v4" /><rect width="18" height="18" x="3" y="4" rx="2" /><path d="M3 10h18" />',
-  spark: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" /><path d="M20 3v4" /><path d="M22 5h-4" /><path d="M4 17v2" /><path d="M5 18H3" />',
+  trophy: '<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" /><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" /><path d="M4 22h16" /><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" /><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" /><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />',
   wave: '<path d="M2 10v3" /><path d="M6 6v11" /><path d="M10 3v18" /><path d="M14 8v7" /><path d="M18 5v13" /><path d="M22 10v3" />',
   micoff: '<line x1="2" x2="22" y1="2" y2="22" /><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2" /><path d="M5 10v2a7 7 0 0 0 12 5" /><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33" /><path d="M9 9v3a3 3 0 0 0 5.12 2.12" /><line x1="12" x2="12" y1="19" y2="22" />',
 });
@@ -105,7 +105,7 @@ function usageCard() {
 
 function modelsCard(s) {
   const top = s.top.slice(0, 3);
-  return card('w-models', 'spark', ['Top ', sw('models')],
+  return card('w-models', 'trophy', ['Top ', sw('models')],
     top.length
       ? el('ul', { class: 'w-list w-bars' }, top.map(([id, n]) => {
           const m = modelById(id);
@@ -208,15 +208,27 @@ function micLevel() {
   for (const v of voice.buf) sum += v * v;
   return Math.min(1, Math.sqrt(sum / voice.buf.length) * 5);
 }
-// The orb: a slowly turning 3D sphere of dots (dither style). Breathes when idle, swells and jitters with your voice
-// (with pulse rings) while listening, spins fast while thinking, and ripples in waves while speaking.
-const ORB_POINTS = (() => {
-  const n = 520; const pts = []; const golden = Math.PI * (3 - Math.sqrt(5));
-  for (let i = 0; i < n; i++) {
-    const y = 1 - (i / (n - 1)) * 2; const r = Math.sqrt(1 - y * y); const th = golden * i;
-    pts.push([Math.cos(th) * r, y, Math.sin(th) * r]);
-  }
-  return pts;
+// The orb: a circle drawn exactly like the background (ordered-dither dots), with a streak of light that flows and
+// turns through it. Breathes when idle, brightens and swells with your voice, churns while thinking, pulses while speaking.
+const ORB = (() => {
+  const hash = (x, y) => {
+    let h = (x * 374761393 + y * 668265263) | 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+  };
+  const noise = (x, y) => {
+    const xi = Math.floor(x); const yi = Math.floor(y); const u = x - xi; const v = y - yi;
+    const su = u * u * (3 - 2 * u); const sv = v * v * (3 - 2 * v);
+    const a = hash(xi, yi); const b = hash(xi + 1, yi); const c = hash(xi, yi + 1); const d = hash(xi + 1, yi + 1);
+    return a + (b - a) * su + (c - a) * sv + (a - b - c + d) * su * sv;
+  };
+  const toRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  return {
+    fbm: (x, y) => noise(x, y) * 0.6 + noise(x * 2.2, y * 2.2) * 0.4,
+    bayer: [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16),
+    dark: ['#0d1c3c', '#11295c', '#163a86', '#1d50b4', '#2a6fe0', '#4d93ff', '#8fc0ff', '#d6eaff', '#f4faff'].map(toRgb),
+    light: ['#dfe8f6', '#c6d7f2', '#a8c3ee', '#86aae8', '#628fe2', '#4479dc', '#3a70dd', '#2f62c4', '#1f4ea8'].map(toRgb),
+  };
 })();
 function drawOrb(now = performance.now()) {
   if (!voice) return;
@@ -225,46 +237,40 @@ function drawOrb(now = performance.now()) {
   voice.last = now;
   const t = now / 1000;
   const st = voice.state;
-  const speed = st === 'thinking' ? 2.4 : st === 'speaking' ? 0.9 : st === 'listening' ? 0.45 + voice.level * 1.5 : 0.18;
-  voice.rot = (voice.rot || 0) + speed * dt;
+  const flow = st === 'thinking' ? 1.6 : st === 'speaking' ? 0.8 : st === 'listening' ? 0.35 + voice.level * 1.8 : 0.15;
+  voice.flowT = (voice.flowT || 0) + flow * dt;
+  voice.turn = (voice.turn || 0) + (st === 'thinking' ? 0.9 : 0.18) * dt;
   const g = voice.orb.getContext('2d');
-  const S = voice.orb.width; const c = S / 2;
+  const S = voice.orb.width; const c = S / 2; const CELL = 4;
+  const night = document.documentElement.dataset.theme === 'night' || (document.documentElement.dataset.theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  const pal = night ? ORB.dark : ORB.light; const top = pal.length - 1;
   const breathe = 1 + Math.sin(t * 1.3) * 0.03;
-  const swell = st === 'listening' ? voice.level * 0.32 : st === 'speaking' ? 0.05 + Math.abs(Math.sin(t * 4.2)) * 0.07 : st === 'thinking' ? 0.025 * Math.sin(t * 5) : 0;
-  const R = S * 0.29 * (breathe + swell);
+  const swell = st === 'listening' ? voice.level * 0.22 : st === 'speaking' ? 0.04 + Math.abs(Math.sin(t * 4.2)) * 0.06 : 0;
+  const R = S * 0.36 * (breathe + swell);
+  const boost = st === 'listening' ? voice.level * 0.5 : st === 'speaking' ? 0.12 + Math.abs(Math.sin(t * 4.2)) * 0.18 : 0;
+  const ang = voice.turn; const nx = -Math.sin(ang); const ny = Math.cos(ang); const tx = Math.cos(ang); const ty = Math.sin(ang);
   g.clearRect(0, 0, S, S);
-  // a soft glow behind
-  const glow = g.createRadialGradient(c, c, R * 0.2, c, c, R * 1.55);
-  glow.addColorStop(0, 'rgba(77, 147, 255, .28)');
-  glow.addColorStop(1, 'rgba(77, 147, 255, 0)');
-  g.fillStyle = glow;
-  g.fillRect(0, 0, S, S);
-  // pulse rings while listening
-  if (st === 'listening') {
-    for (let k = 0; k < 2; k++) {
-      const p = (t * 0.6 + k * 0.5) % 1;
-      g.strokeStyle = `rgba(110, 170, 255, ${(1 - p) * (0.18 + voice.level * 0.5)})`;
-      g.lineWidth = 2;
-      g.beginPath(); g.arc(c, c, R * (1.08 + p * 0.45), 0, Math.PI * 2); g.stroke();
+  for (let y = CELL / 2, r = 0; y < S; y += CELL, r++) {
+    for (let x = CELL / 2, col = 0; x < S; x += CELL, col++) {
+      const dx = x - c; const dy = y - c;
+      const dist = Math.hypot(dx, dy);
+      if (dist > R) continue;
+      const along = dx * tx + dy * ty; const across = dx * nx + dy * ny;
+      const w = R * (across < 0 ? 0.5 : 0.28); // wide glow on one side, tight on the other, like the background
+      let v = Math.exp(-(across * across) / (w * w));
+      v *= 0.5 + 0.9 * ORB.fbm(along / 38 - voice.flowT * 2, across / 16 + 3); // wisps flowing along the streak
+      v += 0.14 + boost;
+      v *= 0.45 + 0.55 * Math.sqrt(1 - (dist / R) ** 2); // rounder: dimmer toward the rim
+      if (v <= 0) continue;
+      if (v > 1) v = 1;
+      const level = v * top;
+      let idx = Math.floor(level) + (level - Math.floor(level) > ORB.bayer[(r & 3) * 4 + (col & 3)] ? 1 : 0);
+      if (idx <= 0) continue;
+      if (idx > top) idx = top;
+      const [R0, G0, B0] = pal[idx];
+      g.fillStyle = `rgb(${R0},${G0},${B0})`;
+      g.fillRect(x - 1.5, y - 1.5, 3, 3);
     }
-  }
-  const a = voice.rot; const tilt = 0.35 + Math.sin(t * 0.4) * 0.12;
-  const ca = Math.cos(a); const sa = Math.sin(a); const cb = Math.cos(tilt); const sb = Math.sin(tilt);
-  const drawn = [];
-  for (const [x, y, z] of ORB_POINTS) {
-    const x1 = x * ca + z * sa; const z1 = -x * sa + z * ca;
-    const y2 = y * cb - z1 * sb; const z2 = y * sb + z1 * cb;
-    let r = 1;
-    if (st === 'speaking') r += 0.09 * Math.sin(y2 * 7 - t * 9);
-    else if (st === 'listening') r += voice.level * 0.16 * Math.sin(x1 * 6 + t * 12) * Math.cos(y2 * 5 - t * 7);
-    else if (st === 'thinking') r += 0.04 * Math.sin((x1 + y2) * 9 + t * 14);
-    drawn.push([c + x1 * R * r, c + y2 * R * r, (z2 + 1) / 2]);
-  }
-  drawn.sort((p, q) => p[2] - q[2]); // far dots first
-  for (const [px, py, depth] of drawn) {
-    const size = 1.3 + depth * 3;
-    g.fillStyle = `rgba(${Math.round(60 + 190 * depth)}, ${Math.round(130 + 115 * depth)}, 255, ${0.12 + 0.88 * depth})`;
-    g.fillRect(px - size / 2, py - size / 2, size, size);
   }
   voice.raf = requestAnimationFrame(drawOrb);
 }

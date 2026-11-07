@@ -64,7 +64,7 @@ function cleanChat(c) {
       if (m?.stopped === true) out.stopped = true; // they pressed Stop
       // side by side: both answers until one is kept
       const pair = list(m?.pair, 2).filter((p) => typeof p?.model === 'string')
-        .map((p) => ({ model: str(p.model, 80), text: str(p.text, CONTENT_MAX), ...(p.error && { error: str(p.error, 300) }) }));
+        .map((p) => ({ model: str(p.model, 80), text: str(p.text, CONTENT_MAX), ...(EFFORTS.includes(p.effort) && { effort: p.effort }), ...(p.error && { error: str(p.error, 300) }) }));
       if (pair.length === 2) out.pair = pair;
       if (pair.length === 2 && (m.picked === 0 || m.picked === 1)) out.picked = m.picked; // which answer the session uses
     }
@@ -78,6 +78,7 @@ function cleanChat(c) {
     tools: list(c.tools, 4).filter((t) => TOOLS.includes(t)),
     model: str(c.model, 80) || null,
     compare: str(c.compare, 80) || null, // side by side: the session's second model
+    compareEffort: EFFORTS.includes(c.compareEffort) ? c.compareEffort : null, // …and its own effort
     effort: EFFORTS.includes(c.effort) ? c.effort : null,
     createdAt: num(c.createdAt, now),
     updatedAt: num(c.updatedAt, now),

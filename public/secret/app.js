@@ -456,7 +456,8 @@ function pairBox(m) {
     return el('div', { class: `pair-col${i === picked ? ' picked' : ''}` },
       el('div', { class: 'pair-head' },
         mod && el('img', { src: BRANDS[mod.brand].logo, alt: '', width: '16', height: '16' }),
-        el('strong', {}, mod ? mod.name : p.model)),
+        el('strong', {}, mod ? mod.name : p.model),
+        p.effort && el('span', { class: 'pair-effort' }, EFFORT_LABEL[p.effort])),
       p.error ? el('div', { class: 'msg-error' }, p.error) : richBody(p.text),
       !p.error && el('div', { class: 'pair-foot' },
         copyAct(() => p.text),
@@ -634,14 +635,24 @@ function setCompare(id) {
   }
   renderChips();
 }
+// the second model's own effort (per session; new sessions start with the last choice)
+function getCompareEffort() {
+  const b = getCompare();
+  if (!b) return choice.effort;
+  let e = current()?.compareEffort;
+  if (!e) { try { e = localStorage.getItem('ea.compareEffort'); } catch {} }
+  return fitEffort(b, e || choice.effort);
+}
+function setCompareEffort(k) {
+  const chat = current();
+  if (chat) { chat.compareEffort = k; saveChats(); }
+  try { localStorage.setItem('ea.compareEffort', k); } catch {}
+  renderSecond();
+}
 function renderChips() {
   const s = settings();
   const project = s.projectId && projectById(s.projectId);
   const items = [];
-  const pairWith = getCompare();
-  if (pairWith && modelById(choice.model)?.kind === 'chat') {
-    items.push(chip('pair', `Side by side · ${pairWith.id === choice.model ? 'pick another model' : `vs ${pairWith.name}`}`, 'Turn off side by side', () => setCompare(null), 'chip-pair'));
-  }
   if (project) {
     items.push(chip('folder', project.name, `Take this session out of ${project.name}`, () => { s.projectId = null; persistSettings(); }, 'chip-project'));
   }
@@ -664,6 +675,7 @@ function renderChips() {
     a.failed ? 'chip-failed' : '',
   )));
   chipsEl.replaceChildren(...items);
+  renderSecond(); // the second model picker follows the session (side by side)
   seenChips = new Set(items.map((i) => i.dataset.key));
   autosize();
 }
@@ -685,7 +697,7 @@ composer.addEventListener('submit', (e) => {
   if (!chat) {
     chat = { id: uid(), title: titleFor(text, attachments), projectId: draft.projectId, memory: draft.memory, tools: [...(draft.tools || [])], createdAt: now, updatedAt: now, messages: [] };
     const pairWith = getCompare(); // home: the last side-by-side choice carries into the new session
-    if (pairWith) chat.compare = pairWith.id;
+    if (pairWith) { chat.compare = pairWith.id; chat.compareEffort = getCompareEffort(); }
     chats.push(chat);
     currentId = chat.id;
   }
@@ -743,14 +755,14 @@ function toApi(chat) {
 // every Google Drive file picked in this chat, so the AI can read them
 const driveFilesIn = (chat) => [...new Map(chat.messages.flatMap((m) => (m.attachments || []).filter((a) => a.kind === 'drive' && a.id)).map((a) => [a.id, { id: a.id, name: a.name }])).values()];
 // One streamed answer from api/chat.js for `model`; calls on(ev) for each JSON line. Throws on a failed request.
-async function streamChat(chat, model, on, signal) {
+async function streamChat(chat, model, on, signal, effort = chat.effort) {
   if (!window.eaAuth) throw new Error('Sign in to get answers.');
   const r = await fetch('/api/chat', {
     method: 'POST',
     signal,
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await window.eaAuth.token()}` },
     body: JSON.stringify({
-      model, effort: chat.effort, memory: true, tools: chat.tools || [], driveFiles: driveFilesIn(chat), messages: toApi(chat),
+      model, effort, memory: true, tools: chat.tools || [], driveFiles: driveFilesIn(chat), messages: toApi(chat),
       clock: { tz: Intl.DateTimeFormat().resolvedOptions().timeZone }, // so "tonight" means your tonight
     }),
   });
@@ -884,11 +896,13 @@ async function reply(chat) {
 
 // Side by side: the same question to two models at once, answers in two columns
 async function replyPair(chat, models) {
-  const cols = models.map((id) => {
+  const efforts = [chat.effort, getCompareEffort()]; // each model has its own effort
+  const cols = models.map((id, i) => {
     const mod = modelById(id);
+    const effort = efforts[i];
     const body = el('div', { class: 'msg-text rich' }, el('span', { class: 'dots', 'aria-hidden': 'true' }, el('i'), el('i'), el('i')));
-    return { id, body, text: '', error: null, paint: streamPainter(body),
-      node: el('div', { class: 'pair-col' }, el('div', { class: 'pair-head' }, el('img', { src: BRANDS[mod.brand].logo, alt: '', width: '16', height: '16' }), el('strong', {}, mod.name)), body) };
+    return { id, effort, body, text: '', error: null, paint: streamPainter(body),
+      node: el('div', { class: 'pair-col' }, el('div', { class: 'pair-head' }, el('img', { src: BRANDS[mod.brand].logo, alt: '', width: '16', height: '16' }), el('strong', {}, mod.name), el('span', { class: 'pair-effort' }, EFFORT_LABEL[effort])), body) };
   });
   const li = el('li', { class: 'msg msg-ai msg-pair', 'aria-label': 'Two AIs are answering' }, el('div', { class: 'pair' }, cols.map((c) => c.node)));
   messagesEl.append(li);
@@ -903,7 +917,7 @@ async function replyPair(chat, models) {
         if (ev.type === 'text') { c.text += ev.text; c.paint(c.text); }
         else if (ev.type === 'error') c.error = ev.error;
         else if (ev.type === 'done' && typeof refreshUsageSoon === 'function') refreshUsageSoon();
-      }, signal);
+      }, signal, c.effort);
       if (!c.text && !c.error) c.error = 'No answer came back.';
     } catch (err) {
       c.error = isAbort(err) ? 'Stopped.' : err.message || 'Something went wrong. Please try again.';
@@ -920,7 +934,7 @@ async function replyPair(chat, models) {
     fill(li, el('div', { class: stopped ? 'msg-stopped' : 'msg-error' }, stopped ? 'You stopped this answer.' : cols[0].error));
     return;
   }
-  const m = { role: 'assistant', text: ok.text, model: ok.id, at: Date.now(), ...(stopped && { stopped }), pair: cols.map((c) => ({ model: c.id, text: c.text, ...(!c.text && { error: c.error }) })) };
+  const m = { role: 'assistant', text: ok.text, model: ok.id, at: Date.now(), ...(stopped && { stopped }), pair: cols.map((c) => ({ model: c.id, effort: c.effort, text: c.text, ...(!c.text && { error: c.error }) })) };
   chat.messages.push(m);
   chat.updatedAt = Date.now();
   saveChats();
@@ -1049,7 +1063,30 @@ function renderModel() {
   input.placeholder = PLACEHOLDER[m.kind];
   modelBtn.title = chat ? `${m.name} · ${EFFORT_LABEL[choice.effort]} effort` : `${m.name} · ${KIND_LABEL[m.kind]}`;
   modelBtn.setAttribute('aria-label', `Model: ${modelBtn.title}`);
+  if (typeof renderSecond === 'function') renderSecond();
   if (!modelMenu.hidden) renderModelMenu();
+}
+
+/* ── Side by side: a second model picker in the message bar, with its own model and effort ── */
+var model2Btn = el('button', { type: 'button', class: 'model-btn model2-btn', id: 'model2-btn', hidden: true, 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-controls': 'model-menu' },
+  el('span', { class: 'model-vs' }, 'vs'), el('img', { class: 'model-logo', alt: '', width: '16', height: '16' }),
+  el('span', { class: 'model-name' }), el('span', { class: 'model-effort' }), icon('chevron'));
+model2Btn.lastChild.classList.add('chev-down');
+model2Btn.lastChild.innerHTML = '<path d="m6 9 6 6 6-6"/>'; // Lucide chevron-down, like the main picker
+var model2X = el('button', { type: 'button', class: 'model2-x', hidden: true, title: 'Turn off side by side', 'aria-label': 'Turn off side by side', onclick: () => setCompare(null) }, icon('x'));
+modelBtn.after(model2Btn, model2X);
+function renderSecond() {
+  if (!model2Btn) return; // not built yet (first load)
+  const b = modelById(choice.model)?.kind === 'chat' ? getCompare() : null;
+  model2Btn.hidden = model2X.hidden = !b;
+  composer.classList.toggle('pairing', Boolean(b));
+  if (!b) return;
+  const effort = getCompareEffort();
+  model2Btn.querySelector('.model-logo').src = BRANDS[b.brand].logo;
+  model2Btn.querySelector('.model-name').textContent = shortName(b);
+  model2Btn.querySelector('.model-effort').textContent = EFFORT_LABEL[effort];
+  model2Btn.title = `Side by side with ${b.name} · ${EFFORT_LABEL[effort]} effort`;
+  model2Btn.setAttribute('aria-label', model2Btn.title);
 }
 
 function showBrand(brand) {
@@ -1059,77 +1096,97 @@ function showBrand(brand) {
   placeMenu(modelMenu, 380);
 }
 
+// the menu picks for the main model, or for the second one (side by side)
+let menuFor = 'main';
+const pickState = () => (menuFor === 'second' ? { model: getCompare()?.id || null, effort: getCompareEffort() } : choice);
+function pickModel(id) {
+  if (menuFor === 'second') { setCompare(id); renderModelMenu(); } else setChoice({ model: id });
+}
+function pickEffort(k) {
+  if (menuFor === 'second') { setCompareEffort(k); renderModelMenu(); } else setChoice({ effort: k });
+}
+
 function renderModelMenu() {
-  const m = modelById(choice.model);
+  const st = pickState();
+  const second = menuFor === 'second';
+  const m = modelById(st.model) || modelById(choice.model);
   const view = $('model-view');
+  const head = second && el('p', { class: 'menu-note model-for' }, icon('pair'), 'Second model: answers next to ', el('strong', {}, modelById(choice.model).name));
 
   if (!menuBrand) {
-    // the 5 brands
-    fill(view, Object.keys(BRANDS).map((b) => el('button', {
+    // the 5 brands (+ compare)
+    fill(view, head, Object.keys(BRANDS).filter((b) => !second || modelsFor('chat', b).length).map((b) => el('button', {
       type: 'button', class: 'menu-item brand-row', 'aria-haspopup': 'true', onclick: () => showBrand(b),
     },
       el('img', { src: BRANDS[b].logo, alt: '', width: '18', height: '18' }),
       el('span', { class: 'grow' }, BRANDS[b].name),
-      m.brand === b && el('span', { class: 'brand-current' }, shortName(m)),
+      st.model && m.brand === b && el('span', { class: 'brand-current' }, shortName(m)),
       icon('chevron'))),
-      m.kind === 'chat' && [
+      !second && m.kind === 'chat' && [
         el('div', { class: 'menu-sep model-sep', role: 'separator' }),
-        el('button', { type: 'button', class: 'menu-item brand-row', 'aria-haspopup': 'true', onclick: () => showBrand('pair') },
-          icon('pair'), el('span', { class: 'grow' }, 'Side by side'),
+        el('button', { type: 'button', class: 'menu-item brand-row', onclick: () => openModelMenu('second') },
+          icon('pair'), el('span', { class: 'grow' }, getCompare() ? 'Side by side' : 'Compare with another model'),
           getCompare() && el('span', { class: 'brand-current' }, `vs ${shortName(getCompare())}`),
           icon('chevron')),
+      ],
+      second && st.model && [
+        el('div', { class: 'menu-sep model-sep', role: 'separator' }),
+        el('button', { type: 'button', class: 'menu-item brand-row', onclick: () => { setCompare(null); closeModelMenu(); } }, icon('x'), el('span', { class: 'grow' }, 'Turn off side by side')),
       ]);
-  } else if (menuBrand === 'pair') {
-    fill(view,
-      el('button', { type: 'button', class: 'back model-back', onclick: () => showBrand(null) }, icon('back'), icon('pair'), 'Side by side'),
-      pairOptions());
   } else {
-    // one brand: chat models, then image models, then video models, each under a labelled divider
-    const sections = KINDS.map(([k, label]) => [label, modelsFor(k, menuBrand)]).filter(([, list]) => list.length);
+    // one brand: chat models, then image models, then video models, each under a labelled divider (second: chat only)
+    const sections = KINDS.filter(([k]) => !second || k === 'chat').map(([k, label]) => [label, modelsFor(k, menuBrand)]).filter(([, list]) => list.length);
     fill(view,
+      head,
       el('button', { type: 'button', class: 'back model-back', onclick: () => showBrand(null) },
         icon('back'), el('img', { src: BRANDS[menuBrand].logo, alt: '', width: '16', height: '16' }), BRANDS[menuBrand].name),
       sections.map(([label, list], i) => [
         el('div', { class: `model-sep-label${i ? '' : ' first'}`, role: 'separator', 'aria-label': label }, el('span', {}, label)),
-        list.map((x) => el('button', {
-          type: 'button', class: 'menu-item model-opt', role: 'menuitemradio', 'aria-checked': String(x.id === choice.model),
-          title: x.note, onclick: () => setChoice({ model: x.id }),
-        },
-          el('span', { class: 'grow model-opt-name' }, x.name),
-          x.id === choice.model && icon('check'))),
+        list.map((x) => {
+          const taken = second && x.id === choice.model;
+          return el('button', {
+            type: 'button', class: 'menu-item model-opt', role: 'menuitemradio', 'aria-checked': String(x.id === st.model),
+            disabled: taken, title: taken ? 'Already your main model' : x.note, onclick: () => pickModel(x.id),
+          },
+            el('span', { class: 'grow model-opt-name' }, x.name),
+            x.id === st.model && icon('check'));
+        }),
       ]),
     );
   }
 
-  // effort: only for chat models
-  const levels = effortsFor(m);
+  // effort: only for chat models (the second model has its own)
+  const levels = st.model ? effortsFor(m) : [];
   $('effort-box').hidden = !levels.length;
   $('effort-seg').style.setProperty('--n', levels.length || 1);
-  $('effort-seg').style.setProperty('--i', Math.max(0, levels.indexOf(choice.effort))); // slides the highlight
+  $('effort-seg').style.setProperty('--i', Math.max(0, levels.indexOf(st.effort))); // slides the highlight
   fill($('effort-seg'), levels.map((k) => el('button', {
-    type: 'button', class: 'effort-opt', role: 'radio', 'aria-checked': String(k === choice.effort),
-    onclick: () => setChoice({ effort: k }),
+    type: 'button', class: 'effort-opt', role: 'radio', 'aria-checked': String(k === st.effort),
+    onclick: () => pickEffort(k),
   }, EFFORT_LABEL[k])));
 }
 
 const modelMenuOpen = () => isShown(modelMenu);
-function openModelMenu() {
+function openModelMenu(mode = 'main') {
   closeMenu();
+  menuFor = mode;
   menuBrand = null; // always opens on the 5 brands
   renderModelMenu();
   showPop(modelMenu);
-  modelBtn.setAttribute('aria-expanded', 'true');
+  modelBtn.setAttribute('aria-expanded', String(mode === 'main'));
+  model2Btn.setAttribute('aria-expanded', String(mode === 'second'));
   placeMenu(modelMenu, 380);
 }
 function closeModelMenu() {
   hidePop(modelMenu);
   modelBtn.setAttribute('aria-expanded', 'false');
+  model2Btn.setAttribute('aria-expanded', 'false');
 }
-modelBtn.addEventListener('click', () => (modelMenuOpen() ? closeModelMenu() : openModelMenu()));
+modelBtn.addEventListener('click', () => (modelMenuOpen() && menuFor === 'main' ? closeModelMenu() : openModelMenu('main')));
+model2Btn.addEventListener('click', () => (modelMenuOpen() && menuFor === 'second' ? closeModelMenu() : openModelMenu('second')));
 document.addEventListener('pointerdown', (e) => {
-  if (modelMenuOpen() && !modelMenu.contains(e.target) && !modelBtn.contains(e.target)) closeModelMenu();
+  if (modelMenuOpen() && !modelMenu.contains(e.target) && !modelBtn.contains(e.target) && !model2Btn.contains(e.target)) closeModelMenu();
 });
-
 /* ── Account (bottom of the sidebar): Settings, Usage, Upgrade plan, Learn more ── */
 const accountMenu = $('account-menu');
 const accountBtn = $('account-btn');
@@ -1292,26 +1349,6 @@ $('menu-tools-btn').addEventListener('click', () => {
   placeMenu(plusMenu);
 });
 
-/* ── Model picker › Side by side: a second AI answers next to the one you picked ── */
-function pairOptions() {
-  const b = getCompare();
-  const main = modelById(choice.model);
-  const opt = (id, label, logo) => el('button', {
-    type: 'button', class: 'menu-item model-opt', role: 'menuitemradio', 'aria-checked': String((b?.id || null) === id),
-    disabled: id && id === main.id, title: id && id === main.id ? 'Already answering: it’s the model you picked' : null,
-    onclick: () => { setCompare(id); closeModelMenu(); if (id) notice(`Side by side is on: ${modelById(id).name} answers next to ${main.name}`); },
-  }, logo ? el('img', { src: logo, alt: '', width: '16', height: '16' }) : icon('x'), el('span', { class: 'grow model-opt-name' }, label), (b?.id || null) === id && icon('check'));
-  return [
-    el('p', { class: 'menu-note' }, main.kind === 'chat' ? `Ask once and get a second answer next to ${main.name}. The session stays side by side until you turn it off.` : 'Side by side works with chat models. Pick one first.'),
-    main.kind === 'chat' && [
-      opt(null, 'Off'),
-      Object.keys(BRANDS).map((br) => {
-        const list = modelsFor('chat', br);
-        return list.length && [el('div', { class: 'model-sep-label' }, el('span', {}, BRANDS[br].name)), list.map((x) => opt(x.id, x.name, BRANDS[br].logo))];
-      }),
-    ],
-  ];
-}
 
 function pickedItems(list, folder) {
   const raw = [...list];

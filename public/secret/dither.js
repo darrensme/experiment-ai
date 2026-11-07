@@ -28,7 +28,8 @@
   const fbm = (x, y) => noise(x, y) * 0.55 + noise(x * 2.1, y * 2.1) * 0.28 + noise(x * 4.3, y * 4.3) * 0.17;
   const isNight = () => {
     const t = document.documentElement.dataset.theme;
-    return t === 'night' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+    // themes are 'day' (Light), 'night' (Dark) and 'auto' (System)
+    return t === 'night' || (t === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
   };
 
   // dark: a line from the upper left falling to the lower right, glowing wide above and tight below
