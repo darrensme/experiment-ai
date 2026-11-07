@@ -246,7 +246,7 @@ h2 .serif { font-size: 1.12em; letter-spacing: -.01em; }
 .tr .no { color: var(--ink-3); }
 .tr .yes { font-weight: 600; display: flex; align-items: center; gap: 8px; }
 .tr .yes::before {
-  content: "✓"; display: grid; place-items: center; flex: none;
+  content: ""; width: .95em; height: .95em; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%222.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M20%206%209%2017l-5-5%22%20/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%222.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M20%206%209%2017l-5-5%22%20/%3E%3C/svg%3E") center / contain no-repeat; display: grid; place-items: center; flex: none;
   width: 22px; height: 22px; border-radius: 50%; font-size: .75rem; color: #fff;
   background: linear-gradient(135deg, var(--gold-2), var(--gold-1));
 }
@@ -461,7 +461,7 @@ a.btn { text-decoration: none; }
 .plan-note { margin: 0; font-size: .9rem; font-weight: 500; color: var(--blue); }
 .plan ul { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; flex: 1; }
 .plan li { position: relative; padding-left: 22px; line-height: 1.4; color: var(--ink-2); font-size: .95rem; }
-.plan li::before { content: "✓"; position: absolute; left: 0; top: .1em; font-size: .8rem; font-weight: 700; color: var(--gold-1); }
+.plan li::before { content: ""; width: .95em; height: .95em; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%222.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M20%206%209%2017l-5-5%22%20/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%222.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M20%206%209%2017l-5-5%22%20/%3E%3C/svg%3E") center / contain no-repeat; position: absolute; left: 0; top: .1em; font-size: .8rem; font-weight: 700; color: var(--gold-1); }
 .plan li.limited::before { content: "–"; color: var(--ink-3); }
 .plan li strong { color: var(--ink); font-weight: 600; }
 .plan .btn { margin-top: 8px; }
@@ -567,3 +567,9 @@ body.auth-pending main { visibility: hidden; }
 /* subscription terms under the plans (pricing page) */
 .plans-legal { max-width: 760px; margin: 22px auto 0; text-align: center; font-size: .85rem; line-height: 1.55; color: var(--ink-2); }
 .plans-legal a { color: var(--ink); text-underline-offset: 2px; }
+
+/* Lucide icons that replaced text symbols and emoji */
+.ico-inline { display: inline-block; width: 1em; height: 1em; margin-right: .35em; vertical-align: -.14em; flex: none; }
+.done-ico { width: 30px; height: 30px; }
+.cookie-ico { display: block; width: 24px; height: 24px; color: var(--ink-2); }
+.cookie-emoji { display: grid; place-items: center; }

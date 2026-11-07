@@ -6,11 +6,11 @@
 const settingsLayer = $('settings');
 const settingsBody = $('settings-body');
 const TABS = [
-  ['account', 'Account', '<circle cx="12" cy="8.5" r="3.5"/><path d="M5 19.5c1.2-3.3 3.9-5 7-5s5.8 1.7 7 5"/>'],
-  ['billing', 'Billing', '<rect x="3.5" y="6" width="17" height="12" rx="2.5"/><path d="M3.5 10h17M7 14.5h3"/>'],
-  ['usage', 'Usage', '<path d="M5 20V11M12 20V5M19 20v-6"/>'],
-  ['personalization', 'Personalization', '<path d="M12 3.5a8.5 8.5 0 1 0 0 17c1 0 1.6-.8 1.6-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7h2a4.2 4.2 0 0 0 4.2-4.2C20.5 6.8 16.7 3.5 12 3.5z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10.5" cy="7.5" r="1"/><circle cx="15" cy="7.5" r="1"/>'],
-  ['connectors', 'Connectors', '<path d="M9 7V4M15 7V4M7 7h10v4a5 5 0 0 1-10 0zM12 16v4"/>'],
+  ['account', 'Account', '<path d="M18 20a6 6 0 0 0-12 0" /><circle cx="12" cy="10" r="4" /><circle cx="12" cy="12" r="10" />'],
+  ['billing', 'Billing', '<rect width="20" height="14" x="2" y="5" rx="2" /><line x1="2" x2="22" y1="10" y2="10" />'],
+  ['usage', 'Usage', '<line x1="18" x2="18" y1="20" y2="10" /><line x1="12" x2="12" y1="20" y2="4" /><line x1="6" x2="6" y1="20" y2="14" />'],
+  ['personalization', 'Personalization', '<circle cx="13.5" cy="6.5" r=".5" fill="currentColor" /><circle cx="17.5" cy="10.5" r=".5" fill="currentColor" /><circle cx="8.5" cy="7.5" r=".5" fill="currentColor" /><circle cx="6.5" cy="12.5" r=".5" fill="currentColor" /><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" />'],
+  ['connectors', 'Connectors', '<path d="M12 22v-5" /><path d="M9 8V2" /><path d="M15 8V2" /><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" />'],
 ];
 const PLAN_INFO = {
   free: { name: 'Free', price: 0, note: 'Try it out' },
@@ -364,7 +364,7 @@ function svgIcon(paths) {
 }
 // the Admin tab only appears for admins (api/settings.js 'get' says isAdmin)
 let isAdminUser = false;
-const ADMIN_TAB = ['admin', 'Admin', '<path d="M12 3.5 5 6.5v5c0 4.2 3 7.6 7 9 4-1.4 7-4.8 7-9v-5z"/><path d="m9 12 2 2 4-4"/>'];
+const ADMIN_TAB = ['admin', 'Admin', '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /><path d="m9 12 2 2 4-4" />'];
 const visibleTabs = () => (isAdminUser ? [...TABS, ADMIN_TAB] : TABS);
 function buildTabs() {
   fill($('settings-tabs'), visibleTabs().map(([key, label, paths]) => el('button', {
@@ -647,7 +647,7 @@ const PRICING = {
     points: ['Everything in Pro, with **all models**', 'Video generation', 'Our highest limits', 'First access to new features', 'Highest priority, always'] },
 };
 const CARD_KEYS = ['free', 'light', 'pro', 'max'];
-const LOCK = '<rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>';
+const LOCK = '<rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />';
 const cardOf = (p) => (p.startsWith('max') ? 'max' : p);
 const tierOf = (p) => (p === 'max-10x' ? '10x' : '5x');
 const planRank = (p) => (p === 'free' ? -1 : PAID_ORDER.indexOf(p));

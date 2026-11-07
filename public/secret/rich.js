@@ -22,8 +22,8 @@
     return n;
   };
   const ico = (paths) => { const n = s('svg', { viewBox: '0 0 24 24', class: 'ico', 'aria-hidden': 'true' }); n.innerHTML = paths; return n; };
-  const COPY = '<rect x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"/>';
-  const TICK = '<path d="M5 12.5l4.5 4.5L19 7.5"/>';
+  const COPY = '<rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />';
+  const TICK = '<path d="M20 6 9 17l-5-5" />';
 
   // a button that copies text and shows a tick for a moment
   function copyButton(getText, label = 'Copy') {

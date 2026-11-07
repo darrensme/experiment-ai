@@ -281,7 +281,7 @@ import {
   async function finish(cred) {
     await saveSpot(cred.user, cred.providerId);
     if (location.pathname !== '/home') {
-      say('✦ You’re in. Opening Experiment AI…');
+      say('You’re in. Opening Experiment AI…');
       location.href = '/home';
       return;
     }
@@ -658,7 +658,7 @@ import {
   $$('[data-copy]').forEach((b) => b.addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(b.dataset.copy);
-      b.textContent = 'Copied ✓';
+      b.textContent = 'Copied';
     } catch {
       b.textContent = b.dataset.copy;
     }
@@ -672,7 +672,7 @@ import {
     const note = document.createElement('div');
     note.className = 'cookie-note';
     note.setAttribute('role', 'status');
-    note.innerHTML = '<span class="cookie-emoji" aria-hidden="true">🍪</span><p><strong>No tracking here.</strong> No ads, no analytics, no tracking cookies. Stripe uses one essential cookie at checkout to stop fraud.</p><button type="button" class="btn btn-dark btn-sm">Nice</button>';
+    note.innerHTML = '<span class="cookie-emoji" aria-hidden="true"><svg class="cookie-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5" /><path d="M8.5 8.5v.01" /><path d="M16 15.5v.01" /><path d="M12 12v.01" /><path d="M11 17v.01" /><path d="M7 14v.01" /></svg></span><p><strong>No tracking here.</strong> No ads, no analytics, no tracking cookies. Stripe uses one essential cookie at checkout to stop fraud.</p><button type="button" class="btn btn-dark btn-sm">Nice</button>';
     document.body.appendChild(note);
     requestAnimationFrame(() => setTimeout(() => note.classList.add('show'), 900));
     $('button', note).addEventListener('click', () => {
